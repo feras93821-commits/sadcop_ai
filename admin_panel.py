@@ -10,6 +10,7 @@ class AdminPanel:
         return user_id == Config.ADMIN_ID
     
     async def show_admin_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """عرض قائمة الأدمن الرئيسية"""
         if not self.is_admin(update.effective_user.id):
             await update.message.reply_text("⛔ ليس لديك صلاحية الوصول!")
             return
@@ -19,17 +20,19 @@ class AdminPanel:
             [InlineKeyboardButton("💱 تعديل سعر الصرف", callback_data='admin_exchange')],
             [InlineKeyboardButton("📋 عرض الشكاوى", callback_data='admin_complaints')],
             [InlineKeyboardButton("📊 إحصائيات", callback_data='admin_stats')],
-            [InlineKeyboardButton("🔙 رجوع", callback_data='back_to_main')]
+            [InlineKeyboardButton("❌ إغلاق", callback_data='close_menu')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await update.message.reply_text(
-            "🔧 *لوحة تحكم الأدمن*\nاختر الإجراء المطلوب:",
+            "🔧 *لوحة تحكم الأدمن*\n\n"
+            "اختر الإجراء المطلوب:",
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
     
     async def show_prices_editor(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """عرض قائمة تعديل الأسعار"""
         query = update.callback_query
         await query.answer()
         
@@ -42,7 +45,7 @@ class AdminPanel:
             text += f"  💵 دولار: `{price.price_usd}`\n"
             text += f"  🇸🇾 ليرة: `{price.price_syp}`\n\n"
             keyboard.append([
-                InlineKeyboardButton(f"تعديل {price.fuel_type}", callback_data=f'edit_price_{price.id}')
+                InlineKeyboardButton(f"✏️ تعديل {price.fuel_type}", callback_data=f'edit_price_{price.id}')
             ])
         
         keyboard.append([InlineKeyboardButton("🔙 رجوع", callback_data='admin_menu')])
@@ -51,6 +54,7 @@ class AdminPanel:
         await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
     
     async def handle_price_edit(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """معالجة تعديل السعر"""
         query = update.callback_query
         await query.answer()
         
@@ -64,6 +68,7 @@ class AdminPanel:
         context.user_data['awaiting_price'] = True
     
     async def show_complaints(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """عرض قائمة الشكاوى"""
         query = update.callback_query
         await query.answer()
         
@@ -76,31 +81,29 @@ class AdminPanel:
             )
             return
         
-        for complaint in complaints[:5]:  # Show last 5
+        for complaint in complaints[:5]:
             status_emoji = "🟡" if complaint.status == 'pending' else "🟢" if complaint.status == 'resolved' else "🔵"
-            text = f"""
-{status_emoji} *شكوى #{complaint.id}*
+            text = f"""{status_emoji} *شكوى #{complaint.id}*
+
 👤 *الاسم:* {complaint.full_name or 'غير معروف'}
 📱 *الهاتف:* {complaint.phone or 'غير متوفر'}
 📅 *التاريخ:* {complaint.created_at.strftime('%Y-%m-%d %H:%M')}
-📝 *النص:* {complaint.complaint_text}
-            """
+📝 *النص:* {complaint.complaint_text}"""
             
             keyboard = [
-                [InlineKeyboardButton("✅ تم المراجعة", callback_data=f'comp_status_{complaint.id}_reviewed'),
+                [InlineKeyboardButton("✅ قيد المراجعة", callback_data=f'comp_status_{complaint.id}_reviewed'),
                  InlineKeyboardButton("🟢 تم الحل", callback_data=f'comp_status_{complaint.id}_resolved')]
             ]
             
-            if update.callback_query:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode='Markdown'
-                )
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
+            )
         
         await query.edit_message_text(
-            "📋 *قائمة الشكاوى* (تم إرسال آخر 5 شكاوى في الدردشة)",
+            "📋 *قائمة الشكاوى* (تم إرسال آخر 5 شكاوى)",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data='admin_menu')]]),
             parse_mode='Markdown'
         )
