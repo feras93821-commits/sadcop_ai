@@ -5,13 +5,13 @@ from datetime import datetime
 import os
 
 Base = declarative_base()
-
 class FuelPrice(Base):
     __tablename__ = 'fuel_prices'
     id = Column(Integer, primary_key=True)
     fuel_type = Column(String(50), unique=True, nullable=False)
     price_usd = Column(Float, default=0.0)
-    price_syp = Column(Float, default=0.0)
+    price_syp = Column(Float, default=0.0)  # ✅ العملة القديمة
+    price_syp_new = Column(Float, default=0.0)  # ✅ العملة الجديدة (مقسومة على 100)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
 class ExchangeRate(Base):
