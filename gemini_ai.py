@@ -1,5 +1,4 @@
 import google.generativeai as genai
-import asyncio
 from config import Config
 
 class GeminiAI:
@@ -24,7 +23,11 @@ class GeminiAI:
             if db_prices:
                 prices_text = "\n\nالأسعار الحالية المتاحة:\n"
                 for price in db_prices:
-                    prices_text += f"- {price.fuel_type}: {price.price_syp} ل.س / {price.price_usd} $\n"
+                    # ✅ عرض العملتين
+                    prices_text += f"- {price.fuel_type}:\n"
+                    prices_text += f"  🇸🇾 قديم: {price.price_syp:,.0f} ل.س\n"
+                    prices_text += f"  🇸🇾 جديد: {price.price_syp_new:,.0f} ل.س\n"
+                    prices_text += f"  💵 دولار: {price.price_usd} $\n"
                 context += prices_text
             
             prompt = f"""{context}
@@ -33,12 +36,8 @@ class GeminiAI:
 
 قدم رداً طبيعياً وودياً بالعربية (فقرة قصيرة):"""
             
-            # ✅ استخدام الطريقة الصحيحة (بدون async)
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None, 
-                lambda: self.model.generate_content(prompt)
-            )
+            # ✅ استخدام generate_content بشكل مباشر (بدون async)
+            response = self.model.generate_content(prompt)
             return response.text.strip()
             
         except Exception as e:
@@ -50,44 +49,54 @@ class GeminiAI:
         try:
             prompt = f"""أخبر المستخدم عن سعر {fuel_type}:
 - السعر بالدولار: {price.price_usd} $
-- السعر بالليرة: {price.price_syp} ل.س
+- السعر بالليرة السورية (القديمة): {price.price_syp:,.0f} ل.س
+- السعر بالليرة السورية (الجديدة): {price.price_syp_new:,.0f} ل.س
 - سعر الصرف: {exchange_rate.usd_to_syp}
 
 رد طبيعي ودي بالعربية (جملة أو جملتين):"""
             
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: self.model.generate_content(prompt)
-            )
+            # ✅ استخدام generate_content بشكل مباشر
+            response = self.model.generate_content(prompt)
             return response.text.strip()
         except Exception as e:
             print(f"Price response error: {e}")
-            return f"⛽ سعر {fuel_type} حالياً:\n💵 {price.price_usd} دولار\n🇸🇾 {price.price_syp} ليرة سورية"
+            return f"""⛽ سعر {fuel_type} حالياً:
+💵 {price.price_usd} دولار
+🇸🇾 {price.price_syp:,.0f} ل.س (قديم)
+🇸🇾 {price.price_syp_new:,.0f} ل.س (جديد)"""
     
     async def generate_general_prices_response(self, prices, exchange_rate):
         """توليد رد عن جميع الأسعار عند السؤال العام"""
         try:
-            prices_list = "\n".join([f"- {p.fuel_type}: {p.price_syp} ل.س / {p.price_usd} $" for p in prices])
+            prices_list = "\n".join([
+                f"- {p.fuel_type}: {p.price_syp:,.0f} ل.س (قديم) / {p.price_syp_new:,.0f} ل.س (جديد) / {p.price_usd} $" 
+                for p in prices
+            ])
             
             prompt = f"""المستخدم يسأل عن أسعار المحروقات بشكل عام.
 الأسعار الحالية:
 {prices_list}
 
-سعر الصرف: 1 دولار = {exchange_rate.usd_to_syp} ليرة سورية
+سعر الصرف: 1 دولار = {exchange_rate.usd_to_syp} ليرة سورية (القديمة)
+
+ملاحظة: الأسعار بالليرة الجديدة تم حذف صفرين عنها.
 
 قدم جواباً ودياً يوضح جميع الأسعار المتاحة (فقرة قصيرة بالعربية):"""
             
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: self.model.generate_content(prompt)
-            )
+            # ✅ استخدام generate_content بشكل مباشر
+            response = self.model.generate_content(prompt)
             return response.text.strip()
         except Exception as e:
             print(f"General prices error: {e}")
-            prices_text = "\n".join([f"• {p.fuel_type}: {p.price_syp} ل.س / {p.price_usd} $" for p in prices])
-            return f"💰 *الأسعار الحالية:*\n{prices_text}\n\n💱 سعر الصرف: 1 دولار = {exchange_rate.usd_to_syp} ليرة سورية"
+            prices_text = "\n".join([
+                f"• {p.fuel_type}: {p.price_syp:,.0f} ل.س (قديم) / {p.price_syp_new:,.0f} ل.س (جديد) / {p.price_usd} $" 
+                for p in prices
+            ])
+            return f"""💰 *الأسعار الحالية:*
+{prices_text}
+
+💱 سعر الصرف: 1 دولار = {exchange_rate.usd_to_syp} ليرة سورية (القديمة)
+📌 ملاحظة: الأسعار بالليرة الجديدة تم حذف صفرين عنها"""
     
     async def generate_complaint_confirmation(self, complaint_text, phone):
         """توليد رسالة تأكيد للشكوى"""
@@ -98,11 +107,8 @@ class GeminiAI:
 
 رسالة قصيرة بالعربية شكر العميل على الشكوى:"""
             
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: self.model.generate_content(prompt)
-            )
+            # ✅ استخدام generate_content بشكل مباشر
+            response = self.model.generate_content(prompt)
             return response.text.strip()
         except Exception as e:
             print(f"Complaint confirmation error: {e}")
