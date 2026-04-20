@@ -14,7 +14,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-db = Database()
+db = Database(reset_tables=False)
 ai = GeminiAI()
 
 # حالات المحادثة
