@@ -4,16 +4,18 @@ from config import Config
 class GeminiAI:
     def __init__(self):
         genai.configure(api_key=Config.GEMINI_API_KEY)
-        self.model = genai.GenerativeModel('gemini-pro')
+        # ✅ استخدام النموذج الحديث
+        self.model = genai.GenerativeModel('gemini-1.5-flash')
         
         self.system_context = """أنت مساعد ذكي ودي للشركة السورية للبترول - محروقات اللاذقية.
         
 قواعد الرد:
-- رد بشكل ودي ومفيد وقصير
+- رد بشكل ودي ومفيد وقصير (1-3 جمل)
 - إذا سأل عن موضوع خارج الشركة، رد بأدب أنك تخصصك المحروقات والخدمات المتعلقة بها
 - يمكنك التحادث بشكل عام لكن ارجع للموضوع بذكاء
 - لا تستخدم JSON في الردود العادية
-- استخدم الإيموجي بشكل مناسب"""
+- استخدم الإيموجي بشكل مناسب
+- إذا سأل عن أسعار محددة، استخدم البيانات المقدمة فقط"""
 
     async def get_response(self, user_message, db_prices=None):
         """الحصول على رد عادي من الذكاء الاصطناعي"""
@@ -23,7 +25,6 @@ class GeminiAI:
             if db_prices:
                 prices_text = "\n\nالأسعار الحالية المتاحة:\n"
                 for price in db_prices:
-                    # ✅ عرض العملتين
                     prices_text += f"- {price.fuel_type}:\n"
                     prices_text += f"  🇸🇾 قديم: {price.price_syp:,.0f} ل.س\n"
                     prices_text += f"  🇸🇾 جديد: {price.price_syp_new:,.0f} ل.س\n"
@@ -36,7 +37,6 @@ class GeminiAI:
 
 قدم رداً طبيعياً وودياً بالعربية (فقرة قصيرة):"""
             
-            # ✅ استخدام generate_content بشكل مباشر (بدون async)
             response = self.model.generate_content(prompt)
             return response.text.strip()
             
@@ -55,7 +55,6 @@ class GeminiAI:
 
 رد طبيعي ودي بالعربية (جملة أو جملتين):"""
             
-            # ✅ استخدام generate_content بشكل مباشر
             response = self.model.generate_content(prompt)
             return response.text.strip()
         except Exception as e:
@@ -83,7 +82,6 @@ class GeminiAI:
 
 قدم جواباً ودياً يوضح جميع الأسعار المتاحة (فقرة قصيرة بالعربية):"""
             
-            # ✅ استخدام generate_content بشكل مباشر
             response = self.model.generate_content(prompt)
             return response.text.strip()
         except Exception as e:
@@ -107,7 +105,6 @@ class GeminiAI:
 
 رسالة قصيرة بالعربية شكر العميل على الشكوى:"""
             
-            # ✅ استخدام generate_content بشكل مباشر
             response = self.model.generate_content(prompt)
             return response.text.strip()
         except Exception as e:
