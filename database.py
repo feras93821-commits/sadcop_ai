@@ -5,13 +5,14 @@ from datetime import datetime
 import os
 
 Base = declarative_base()
+
 class FuelPrice(Base):
     __tablename__ = 'fuel_prices'
     id = Column(Integer, primary_key=True)
     fuel_type = Column(String(50), unique=True, nullable=False)
     price_usd = Column(Float, default=0.0)
-    price_syp = Column(Float, default=0.0)  # ✅ العملة القديمة
-    price_syp_new = Column(Float, default=0.0)  # ✅ العملة الجديدة (مقسومة على 100)
+    price_syp = Column(Float, default=0.0)      # العملة القديمة
+    price_syp_new = Column(Float, default=0.0)    # العملة الجديدة (مقسومة على 100)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
 class ExchangeRate(Base):
@@ -35,35 +36,29 @@ class Complaint(Base):
 class Database:
     def __init__(self, db_url=None, reset_tables=False):
         if db_url is None:
-            # ✅ الحصول على DATABASE_URL من متغيرات البيئة
             db_url = os.getenv("DATABASE_URL")
             
             if not db_url:
                 print("❌ خطأ: DATABASE_URL غير محدد في متغيرات البيئة!")
                 raise ValueError("DATABASE_URL environment variable is required")
             
-            # ✅ تحويل postgres:// إلى postgresql://
             if db_url.startswith("postgres://"):
                 db_url = db_url.replace("postgres://", "postgresql://", 1)
             
-            # ✅ إذا كان Railway يستخدم postgresql+psycopg2
             if "postgresql://" in db_url and "psycopg2" not in db_url:
-                # محاولة إضافة محرك النص إذا لم يكن موجوداً
                 db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
         
         print(f"📊 Database URL: {db_url[:50]}...")
         
         try:
-            # ✅ استخدام pool_pre_ping للتحقق من الاتصال
             self.engine = create_engine(
                 db_url,
                 echo=False,
-                pool_pre_ping=True,  # التحقق من الاتصال قبل استخدامه
-                pool_recycle=3600,   # إعادة تدوير الاتصال كل ساعة
+                pool_pre_ping=True,
+                pool_recycle=3600,
                 connect_args={"connect_timeout": 10}
             )
             
-            # اختبار الاتصال
             with self.engine.connect() as conn:
                 print("✅ Database connection successful!")
             
@@ -88,7 +83,6 @@ class Database:
         self._init_defaults()
     
     def _fix_schema_if_needed(self):
-        """التحقق من المخطط وإصلاحه"""
         try:
             inspector = inspect(self.engine)
             
@@ -106,7 +100,6 @@ class Database:
             print(f"⚠️ Schema check warning: {e}")
     
     def _reset_complaints_table(self):
-        """إعادة إنشاء جدو�� الشكاوى"""
         try:
             old_data = []
             try:
@@ -148,19 +141,17 @@ class Database:
             Complaint.__table__.create(self.engine)
     
     def _reset_all_tables(self):
-        """حذف وإعادة إنشاء جميع الجداول"""
         print("🔄 Resetting all tables...")
         Base.metadata.drop_all(self.engine)
         Base.metadata.create_all(self.engine)
         print("✅ All tables recreated")
     
     def _init_defaults(self):
-        """تهيئة البيانات الافتراضية"""
         try:
             fuel_types = ['بنزين', 'مازوت', 'غاز منزلي', 'غاز صناعي']
             for fuel in fuel_types:
                 if not self.session.query(FuelPrice).filter_by(fuel_type=fuel).first():
-                    self.session.add(FuelPrice(fuel_type=fuel, price_usd=0.0, price_syp=0.0))
+                    self.session.add(FuelPrice(fuel_type=fuel, price_usd=0.0, price_syp=0.0, price_syp_new=0.0))
             
             if not self.session.query(ExchangeRate).first():
                 self.session.add(ExchangeRate(usd_to_syp=15000.0))
@@ -185,7 +176,8 @@ class Database:
             print(f"❌ Error getting all prices: {e}")
             return []
     
-    def update_fuel_price(self, fuel_type, price_usd=None, price_syp=None):
+    def update_fuel_price(self, fuel_type, price_usd=None, price_syp=None, price_syp_new=None):
+        """تحديث سعر الوقود - الآن يدعم price_syp_new"""
         try:
             fuel = self.get_fuel_price(fuel_type)
             if fuel:
@@ -193,9 +185,15 @@ class Database:
                     fuel.price_usd = price_usd
                 if price_syp is not None:
                     fuel.price_syp = price_syp
+                # ✅ إذا لم يُمرر price_syp_new، احسبه تلقائياً
+                if price_syp_new is not None:
+                    fuel.price_syp_new = price_syp_new
+                elif price_syp is not None:
+                    fuel.price_syp_new = round(float(price_syp) / 100.0, 2)
+                
                 fuel.updated_at = datetime.utcnow()
                 self.session.commit()
-                print(f"✅ Price updated for {fuel_type}")
+                print(f"✅ Price updated for {fuel_type}: USD={fuel.price_usd}, SYP_OLD={fuel.price_syp}, SYP_NEW={fuel.price_syp_new}")
                 return True
             else:
                 print(f"⚠️ Fuel type not found: {fuel_type}")
@@ -209,7 +207,6 @@ class Database:
         try:
             rate = self.session.query(ExchangeRate).first()
             if not rate:
-                # إنشاء معدل صرف افتراضي إذا لم يكن موجوداً
                 rate = ExchangeRate(usd_to_syp=15000.0)
                 self.session.add(rate)
                 self.session.commit()
