@@ -14,7 +14,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-db = Database(reset_tables=False)
+db = Database()
 ai = GeminiAI()
 
 # حالات المحادثة
@@ -27,8 +27,6 @@ FUEL_KEYWORDS = {
     'مازوت': 'مازوت', 
     'غاز منزلي': 'غاز منزلي',
     'غاز صناعي': 'غاز صناعي',
-    'بنزين': 'بنزين',
-    'مازوت': 'مازوت',
     'غاز': 'غاز منزلي',
     'غاز البيت': 'غاز منزلي',
     'غاز المنزل': 'غاز منزلي',
@@ -36,8 +34,15 @@ FUEL_KEYWORDS = {
     'الغاز': 'غاز منزلي',
     'fuel': 'بنزين',
     'diesel': 'مازوت',
-    'gas': 'غاز منزلي'
+    'gas': 'غاز منزلي',
+    'بنزين': 'بنزين',
+    'مازوت': 'مازوت'
 }
+
+COMPLAINT_KEYWORDS = ['شكوى', 'شكوة', 'شكوي', 'complaint', 'تقديم شكوى', 'أشكو', 'أريد أشتكي', 
+                      'مشكلة', 'مشكلتي', 'اعتراض', 'تظلم', 'شاكي', 'نشكو', 'نشكي']
+
+PRICE_KEYWORDS = ['سعر', 'كم', 'price', 'cost', 'قيمة', 'ثمن', 'بكام', 'بدفع', 'بكم', 'السعر']
 
 def detect_fuel_type(text):
     """اكتشاف نوع الوقود من النص"""
@@ -47,11 +52,20 @@ def detect_fuel_type(text):
             return fuel
     return None
 
+def is_price_query(text):
+    """التحقق إذا كان السؤال عن سعر"""
+    text_lower = text.lower()
+    return any(keyword in text_lower for keyword in PRICE_KEYWORDS)
+
+def is_complaint_request(text):
+    """التحقق إذا كان الطلب تقديم شكوى"""
+    text_lower = text.lower()
+    return any(keyword in text_lower for keyword in COMPLAINT_KEYWORDS)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """بدء المحادثة"""
     user = update.effective_user
     
-    # حفظ معلومات المستخدم
     context.user_data['user_id'] = user.id
     context.user_data['username'] = user.username
     context.user_data['full_name'] = user.full_name
@@ -67,12 +81,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     current_state = context.user_data.get('state', STATE_NORMAL)
     
-    # إظهار indicator الكتابة
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     
     # === معالجة حالة تقديم الشكوى ===
     if current_state == STATE_AWAITING_COMPLAINT:
-        # حفظ نص الشكوى
         context.user_data['complaint_text'] = text
         context.user_data['state'] = STATE_AWAITING_PHONE
         
@@ -87,7 +99,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['phone'] = phone
         context.user_data['state'] = STATE_NORMAL
         
-        # حفظ الشكوى في قاعدة البيانات
         complaint = db.add_complaint(
             user_id=user.id,
             username=user.username,
@@ -113,7 +124,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Failed to notify admin: {e}")
         
-        # رد تأكيد للمستخدم
         confirmation = await ai.generate_complaint_confirmation(
             context.user_data.get('complaint_text', ''),
             phone
@@ -124,9 +134,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # === معالجة الرسائل العادية ===
     
-    # 1. التحقق من طلب سعر وقود
+    # 1. التحقق من طلب سعر وقود (أولوية عالية)
     fuel_type = detect_fuel_type(text)
-    if fuel_type and any(word in text.lower() for word in ['سعر', 'كم', 'price', 'cost', 'قيمة', 'ثمن', 'بكام', 'بدفع']):
+    if fuel_type and is_price_query(text):
         price = db.get_fuel_price(fuel_type)
         ex_rate = db.get_exchange_rate()
         
@@ -135,9 +145,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(response)
             return
     
-    # 2. التحقق من طلب تقديم شكوى
-    complaint_keywords = ['شكوى', 'شكوة', 'شكوي', 'complaint', 'تقديم شكوى', 'أشكو', 'أريد أشتكي', 'مشكلة', 'مشكلتي']
-    if any(keyword in text.lower() for keyword in complaint_keywords):
+    # 2. التحقق من طلب تقديم شكوى (أولوية عالية)
+    if is_complaint_request(text):
         context.user_data['state'] = STATE_AWAITING_COMPLAINT
         
         await update.message.reply_text(
@@ -146,7 +155,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # 3. الرد العادي بالذكاء الاصطناعي
+    # 3. الرد العادي بالذكاء الاصطناعي (لأي موضوع آخر)
     try:
         prices = db.get_all_prices()
         response = await ai.get_response(text, prices)
@@ -154,14 +163,43 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"AI Error: {e}")
         await update.message.reply_text(
-            "عذراً، لم أفهم طلبك تماماً. يمكنك:\n"
-            "• سؤالي عن أسعار المحروقات (مثال: كم سعر البنزين؟)\n"
-            "• طلب تقديم شكوى (مثال: أريد تقديم شكوى)\n"
-            "• أو أي استفسار آخر"
+            "مرحباً! 👋\n\n"
+            "يمكنني مساعدتك في:\n"
+            "• 💰 معرفة أسعار المحروقات (بنزين، مازوت، غاز...)\n"
+            "• 📝 تقديم شكوى أو اقتراح\n"
+            "• ❓ الرد على استفساراتك العامة\n\n"
+            "كيف يمكنني مساعدتك؟"
         )
 
+# ==================== أوامر الأدمن ====================
+
+async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """عرض مساعدة الأدمن"""
+    if update.effective_user.id != Config.ADMIN_ID:
+        await update.message.reply_text("⛔ هذا الأمر مخصص للمدير فقط.")
+        return
+    
+    help_text = """🔧 *أوامر لوحة تحكم الأدمن:*
+
+📊 `/admin` - عرض الإحصائيات والأسعار الحالية
+
+💰 `/setprice [الوقود] [السعر]`
+   مثال: `/setprice بنزين 8500`
+
+💱 `/setexchange [السعر]`
+   مثال: `/setexchange 15000`
+
+📋 `/complaints` - عرض آخر 5 شكاوى
+
+✅ `/resolve [رقم]` - تحديد شكوى كمحلولة
+   مثال: `/resolve 3`
+
+🗑 `/resetdb` - إعادة إنشاء قاعدة البيانات (⚠️ تحذير)"""
+    
+    await update.message.reply_text(help_text, parse_mode='Markdown')
+
 async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر الأدمن للإحصائيات"""
+    """إحصائيات البوت"""
     if update.effective_user.id != Config.ADMIN_ID:
         await update.message.reply_text("⛔ هذا الأمر مخصص للمدير فقط.")
         return
@@ -175,17 +213,17 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⛽ أنواع الوقود: {len(prices)}
 📝 إجمالي الشكاوى: {len(complaints)}
 🟡 قيد الانتظار: {pending}
-💱 سعر الصرف: {db.get_exchange_rate().usd_to_syp}
+💱 سعر الصرف: `{db.get_exchange_rate().usd_to_syp}`
 
 *الأسعار الحالية:*
 """
     for p in prices:
-        stats += f"\n• {p.fuel_type}: {p.price_syp} ل.س / {p.price_usd} $"
+        stats += f"\n• {p.fuel_type}: `{p.price_syp}` ل.س / `{p.price_usd}` $"
     
     await update.message.reply_text(stats, parse_mode='Markdown')
 
 async def admin_update_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر الأدمن لتحديث السعر"""
+    """تحديث سعر وقود"""
     if update.effective_user.id != Config.ADMIN_ID:
         return
     
@@ -193,44 +231,49 @@ async def admin_update_price(update: Update, context: ContextTypes.DEFAULT_TYPE)
         args = context.args
         if len(args) < 2:
             await update.message.reply_text(
-                "الاستخدام: /setprice [نوع الوقود] [السعر بالليرة]\n"
-                "مثال: /setprice بنزين 8000"
+                "❌ الاستخدام: `/setprice [نوع الوقود] [السعر بالليرة]`\n"
+                "مثال: `/setprice بنزين 8500`",
+                parse_mode='Markdown'
             )
             return
         
         fuel_type = args[0]
         price_syp = float(args[1])
         
-        # حساب السعر بالدولار
         ex_rate = db.get_exchange_rate().usd_to_syp
         price_usd = round(price_syp / ex_rate, 2) if ex_rate > 0 else 0
         
         if db.update_fuel_price(fuel_type, price_usd=price_usd, price_syp=price_syp):
             await update.message.reply_text(
-                f"✅ تم تحديث سعر {fuel_type}:\n"
-                f"🇸🇾 {price_syp} ليرة\n"
-                f"💵 {price_usd} دولار"
+                f"✅ تم تحديث سعر *{fuel_type}*:\n"
+                f"🇸🇾 `{price_syp}` ليرة\n"
+                f"💵 `{price_usd}` دولار",
+                parse_mode='Markdown'
             )
         else:
-            await update.message.reply_text("❌ نوع الوقود غير موجود!")
+            await update.message.reply_text("❌ نوع الوقود غير موجود! الأنواع المتاحة: بنزين، مازوت، غاز منزلي، غاز صناعي")
             
     except ValueError:
         await update.message.reply_text("❌ يرجى إدخال رقم صحيح للسعر!")
 
 async def admin_update_exchange(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر الأدمن لتحديث سعر الصرف"""
+    """تحديث سعر الصرف"""
     if update.effective_user.id != Config.ADMIN_ID:
         return
     
     try:
+        if not context.args:
+            await update.message.reply_text("الاستخدام: `/setexchange [السعر]`\nمثال: `/setexchange 15000`", parse_mode='Markdown')
+            return
+            
         rate = float(context.args[0])
         db.update_exchange_rate(rate)
-        await update.message.reply_text(f"✅ تم تحديث سعر الصرف: 1$ = {rate} ل.س")
-    except (ValueError, IndexError):
-        await update.message.reply_text("الاستخدام: /setexchange [السعر]\nمثال: /setexchange 14500")
+        await update.message.reply_text(f"✅ تم تحديث سعر الصرف:\n1 دولار = `{rate}` ليرة سورية", parse_mode='Markdown')
+    except ValueError:
+        await update.message.reply_text("❌ يرجى إدخال رقم صحيح!")
 
 async def admin_complaints(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """عرض الشكاوى للأدمن"""
+    """عرض الشكاوى"""
     if update.effective_user.id != Config.ADMIN_ID:
         return
     
@@ -241,15 +284,16 @@ async def admin_complaints(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     for c in complaints[:5]:
-        status = {"pending": "🟡", "reviewed": "🔵", "resolved": "🟢"}.get(c.status, "⚪")
-        msg = f"""{status} *شكوى #{c.id}*
+        status = {"pending": "🟡 قيد الانتظار", "reviewed": "🔵 قيد المراجعة", "resolved": "🟢 تم الحل"}.get(c.status, "⚪")
+        msg = f"""🆔 *شكوى #{c.id}*
 
-👤 {c.full_name or 'غير معروف'}
-📱 {c.phone or 'غير متوفر'}
-📅 {c.created_at.strftime('%Y-%m-%d %H:%M')}
-📝 {c.complaint_text}
+👤 *الاسم:* {c.full_name or 'غير معروف'}
+📱 *الهاتف:* {c.phone or 'غير متوفر'}
+📅 *التاريخ:* {c.created_at.strftime('%Y-%m-%d %H:%M')}
+📊 *الحالة:* {status}
+📝 *النص:* {c.complaint_text}
 
-لتحديث الحالة: /resolve {c.id}"""
+للتحديث: `/resolve {c.id}`"""
         
         await update.message.reply_text(msg, parse_mode='Markdown')
 
@@ -259,22 +303,42 @@ async def admin_resolve(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     try:
+        if not context.args:
+            await update.message.reply_text("الاستخدام: `/resolve [رقم الشكوى]`", parse_mode='Markdown')
+            return
+            
         comp_id = int(context.args[0])
         db.update_complaint_status(comp_id, 'resolved')
-        await update.message.reply_text(f"✅ تم تحديث شكوى #{comp_id} إلى 'تم الحل'")
-    except (ValueError, IndexError):
-        await update.message.reply_text("الاستخدام: /resolve [رقم الشكوى]")
+        await update.message.reply_text(f"✅ تم تحديث شكوى #{comp_id} إلى *تم الحل*", parse_mode='Markdown')
+    except ValueError:
+        await update.message.reply_text("❌ يرجى إدخال رقم صحيح!")
+
+async def admin_reset_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """إعادة إنشاء قاعدة البيانات"""
+    if update.effective_user.id != Config.ADMIN_ID:
+        return
+    
+    global db
+    try:
+        db = Database(reset_tables=True)
+        await update.message.reply_text("✅ تم إعادة إنشاء قاعدة البيانات بنجاح!")
+    except Exception as e:
+        await update.message.reply_text(f"❌ خطأ: {str(e)}")
 
 def main():
     application = Application.builder().token(Config.BOT_TOKEN).build()
     
-    # الأوامر
+    # الأوامر العامة
     application.add_handler(CommandHandler("start", start))
+    
+    # أوامر الأدمن
     application.add_handler(CommandHandler("admin", admin_stats))
     application.add_handler(CommandHandler("setprice", admin_update_price))
     application.add_handler(CommandHandler("setexchange", admin_update_exchange))
     application.add_handler(CommandHandler("complaints", admin_complaints))
     application.add_handler(CommandHandler("resolve", admin_resolve))
+    application.add_handler(CommandHandler("resetdb", admin_reset_db))
+    application.add_handler(CommandHandler("helpadmin", admin_help))
     
     # الرسائل النصية
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
