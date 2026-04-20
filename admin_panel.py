@@ -24,12 +24,20 @@ class AdminPanel:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_text(
-            "🔧 *لوحة تحكم الأدمن*\n\n"
-            "اختر الإجراء المطلوب:",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+        try:
+            await update.callback_query.edit_message_text(
+                "🔧 *لوحة تحكم الأدمن*\n\n"
+                "اختر الإجراء المطلوب:",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        except:
+            await update.message.reply_text(
+                "🔧 *لوحة تحكم الأدمن*\n\n"
+                "اختر الإجراء المطلوب:",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
     
     async def show_prices_editor(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """عرض قائمة تعديل الأسعار"""
@@ -61,11 +69,17 @@ class AdminPanel:
         price_id = int(query.data.split('_')[-1])
         context.user_data['editing_price_id'] = price_id
         
+        # الحصول على اسم الوقود
+        prices = self.db.get_all_prices()
+        fuel_name = next((p.fuel_type for p in prices if p.id == price_id), "الوقود")
+        
         await query.edit_message_text(
-            "✏️ أرسل السعر الجديد بالليرة السورية:",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 إلغاء", callback_data='admin_prices')]])
+            f"✏️ *تعديل سعر {fuel_name}*\n\n"
+            f"أرسل السعر الجديد بالليرة السورية\n"
+            f"مثال: `8500`",
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ إلغاء", callback_data='admin_prices')]])
         )
-        context.user_data['awaiting_price'] = True
     
     async def show_complaints(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """عرض قائمة الشكاوى"""
