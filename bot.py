@@ -19,12 +19,12 @@ db = Database()
 ai = GeminiAI()
 admin_panel = AdminPanel(db)
 
-# حالات المحادثة
 STATE_NORMAL = "normal"
 STATE_AWAITING_COMPLAINT = "awaiting_complaint"
 STATE_AWAITING_PHONE = "awaiting_phone"
+STATE_EDITING_PRICE = "editing_price"
+STATE_EDITING_EXCHANGE = "editing_exchange"
 
-# كلمات مفتاحية محسّنة
 FUEL_KEYWORDS = {
     'بنزين': 'بنزين',
     'مازوت': 'مازوت', 
@@ -39,21 +39,17 @@ FUEL_KEYWORDS = {
     'diesel': 'مازوت',
     'gas': 'غاز منزلي',
     'petrol': 'بنزين',
-    'بنزين 95': 'بنزين',
-    'بنزين 98': 'بنزين',
 }
 
 COMPLAINT_KEYWORDS = ['شكوى', 'شكوة', 'شكوي', 'complaint', 'تقديم شكوى', 'أشكو', 
                       'أريد أشتكي', 'مشكلة', 'مشكلتي', 'اعتراض', 'تظلم', 'شاكي', 
-                      'نشكو', 'نشكي', 'رقم الشكاوى', 'contact complaint', 'تذمر']
+                      'نشكو', 'نشكي', 'تذمر']
 
 PRICE_KEYWORDS = ['سعر', 'كم', 'price', 'cost', 'قيمة', 'ثمن', 'بكام', 'بدفع', 
-                  'بكم', 'السعر', 'كام', 'أسعار', 'اسعار']
+                  'بكم', 'السعر', 'كام', 'أسعار']
 
 def detect_fuel_type(text):
-    """كشف نوع الوقود من النص - ترتيب بحث محسّن"""
     text_lower = text.lower()
-    # ترتيب حسب طول الكلمة (الأطول أولاً)
     sorted_keywords = sorted(FUEL_KEYWORDS.keys(), key=len, reverse=True)
     for keyword in sorted_keywords:
         if keyword in text_lower:
@@ -61,17 +57,14 @@ def detect_fuel_type(text):
     return None
 
 def is_price_query(text):
-    """التحقق من أن السؤال عن السعر"""
     text_lower = text.lower()
     return any(keyword in text_lower for keyword in PRICE_KEYWORDS)
 
 def is_complaint_request(text):
-    """التحقق من طلب تقديم شكوى"""
     text_lower = text.lower()
     return any(keyword in text_lower for keyword in COMPLAINT_KEYWORDS)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالج أمر البدء"""
     user = update.effective_user
     
     context.user_data['user_id'] = user.id
@@ -83,13 +76,72 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(welcome)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالج الرسائل الرئيسية"""
     user = update.effective_user
     text = update.message.text
     current_state = context.user_data.get('state', STATE_NORMAL)
     
-    # إظهار مؤشر الكتابة
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
+    
+    # ✅ معالجة تعديل السعر للأدمن
+    if current_state == STATE_EDITING_PRICE and user.id == Config.ADMIN_ID:
+        try:
+            price_syp = float(text)
+            price_id = context.user_data.get('editing_price_id')
+            
+            prices = db.get_all_prices()
+            fuel = next((p for p in prices if p.id == price_id), None)
+            
+            if fuel:
+                ex_rate = db.get_exchange_rate().usd_to_syp
+                price_usd = round(price_syp / ex_rate, 2) if ex_rate > 0 else 0
+                
+                db.update_fuel_price(fuel.fuel_type, price_usd=price_usd, price_syp=price_syp)
+                
+                await update.message.reply_text(
+                    f"✅ تم تحديث سعر *{fuel.fuel_type}*:\n"
+                    f"🇸🇾 `{price_syp}` ليرة\n"
+                    f"💵 `{price_usd}` دولار",
+                    parse_mode='Markdown'
+                )
+                
+                # العودة للقائمة الرئيسية
+                context.user_data['state'] = STATE_NORMAL
+                keyboard = [[InlineKeyboardButton("↩️ العودة للقائمة الرئيسية", callback_data='admin_menu')]]
+                await update.message.reply_text(
+                    "اختر إجراء آخر:",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            else:
+                await update.message.reply_text("❌ حدث خطأ في تحديث السعر!")
+            
+        except ValueError:
+            await update.message.reply_text("❌ يرجى إدخال رقم صحيح! مثال: `8500`", parse_mode='Markdown')
+            return
+        return
+    
+    # ✅ معالجة تعديل سعر الصرف للأدمن
+    if current_state == STATE_EDITING_EXCHANGE and user.id == Config.ADMIN_ID:
+        try:
+            rate = float(text)
+            db.update_exchange_rate(rate)
+            
+            await update.message.reply_text(
+                f"✅ تم تحديث سعر الصرف:\n"
+                f"1 دولار = `{rate}` ليرة سورية",
+                parse_mode='Markdown'
+            )
+            
+            # العودة للقائمة الرئيسية
+            context.user_data['state'] = STATE_NORMAL
+            keyboard = [[InlineKeyboardButton("↩️ العودة للقائمة الرئيسية", callback_data='admin_menu')]]
+            await update.message.reply_text(
+                "اختر إجراء آخر:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        except ValueError:
+            await update.message.reply_text("❌ يرجى إ��خال رقم صحيح! مثال: `15000`", parse_mode='Markdown')
+            return
+        return
     
     # ================== حالة انتظار الشكوى ==================
     if current_state == STATE_AWAITING_COMPLAINT:
@@ -118,7 +170,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             complaint_text=context.user_data.get('complaint_text', '')
         )
         
-        # إرسال إشعار للأدمن
         try:
             admin_msg = f"""🆕 *شكوى جديدة #{complaint.id}*
 
@@ -135,7 +186,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Failed to notify admin: {e}")
         
-        # توليد رسالة تأكيد
         confirmation = await ai.generate_complaint_confirmation(
             context.user_data.get('complaint_text', ''),
             phone
@@ -149,7 +199,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if is_price_query(text):
         if fuel_type:
-            # سؤال عن سعر معين
             price = db.get_fuel_price(fuel_type)
             ex_rate = db.get_exchange_rate()
             
@@ -158,7 +207,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(response)
                 return
         else:
-            # سؤال عام عن الأسعار (بدون ذكر نوع محدد)
             prices = db.get_all_prices()
             ex_rate = db.get_exchange_rate()
             response = await ai.generate_general_prices_response(prices, ex_rate)
@@ -201,10 +249,11 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ هذا الأمر مخصص للمدير فقط.")
         return
     
+    context.user_data['state'] = STATE_NORMAL
     await admin_panel.show_admin_menu(update, context)
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالج الأزرار التفاعلية في لوحة التحكم"""
+    """معالج الأزرار التفاعلية"""
     if update.effective_user.id != Config.ADMIN_ID:
         await update.callback_query.answer("⛔ ليس لديك صلاحية!", show_alert=True)
         return
@@ -213,28 +262,27 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     
     try:
-        # عرض القائمة الرئيسية
         if data == 'admin_menu':
+            context.user_data['state'] = STATE_NORMAL
             await admin_panel.show_admin_menu(update, context)
         
-        # تعديل الأسعار
         elif data == 'admin_prices':
             await admin_panel.show_prices_editor(update, context)
         
-        # تعديل سعر الصرف
         elif data == 'admin_exchange':
             await query.answer()
             await query.edit_message_text(
-                "💱 أرسل سعر الصرف الجديد (1 دولار = كم ليرة؟):",
-                reply_markup=None
+                "💱 *تعديل سعر الصرف*\n\n"
+                "أرسل السعر الجديد (1 دولار = كم ليرة؟)\n"
+                "مثال: `15000`",
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ إلغاء", callback_data='admin_menu')]])
             )
-            context.user_data['awaiting_exchange'] = True
+            context.user_data['state'] = STATE_EDITING_EXCHANGE
         
-        # عرض الشكاوى
         elif data == 'admin_complaints':
             await admin_panel.show_complaints(update, context)
         
-        # الإحصائيات
         elif data == 'admin_stats':
             await query.answer()
             prices = db.get_all_prices()
@@ -256,7 +304,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = [[InlineKeyboardButton("🔙 رجوع", callback_data='admin_menu')]]
             await query.edit_message_text(stats, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         
-        # تحديث حالة الشكاوى
         elif data.startswith('comp_status_'):
             parts = data.split('_')
             comp_id = int(parts[2])
@@ -264,67 +311,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db.update_complaint_status(comp_id, status)
             await query.answer(f"✅ تم تحديث الشكوى!", show_alert=False)
         
-        # تعديل السعر
         elif data.startswith('edit_price_'):
             await admin_panel.handle_price_edit(update, context)
+            context.user_data['state'] = STATE_EDITING_PRICE
         
-        # إغلاق القائمة
         elif data == 'close_menu':
             await query.delete_message()
+            context.user_data['state'] = STATE_NORMAL
             
     except Exception as e:
         logger.error(f"Callback error: {e}")
         await query.answer("حدث خطأ!", show_alert=True)
 
-async def handle_admin_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة مدخلات الأدمن (الأسعار، سعر الصرف)"""
-    if update.effective_user.id != Config.ADMIN_ID:
-        return
-    
-    text = update.message.text
-    
-    # معالجة سعر جديد
-    if context.user_data.get('awaiting_price'):
-        try:
-            price_syp = float(text)
-            price_id = context.user_data.get('editing_price_id')
-            
-            prices = db.get_all_prices()
-            fuel = next((p for p in prices if p.id == price_id), None)
-            
-            if fuel:
-                ex_rate = db.get_exchange_rate().usd_to_syp
-                price_usd = round(price_syp / ex_rate, 2) if ex_rate > 0 else 0
-                
-                db.update_fuel_price(fuel.fuel_type, price_usd=price_usd, price_syp=price_syp)
-                
-                await update.message.reply_text(
-                    f"✅ تم تحديث سعر *{fuel.fuel_type}*:\n"
-                    f"🇸🇾 `{price_syp}` ليرة\n"
-                    f"💵 `{price_usd}` دولار",
-                    parse_mode='Markdown'
-                )
-            
-            context.user_data['awaiting_price'] = False
-            
-        except ValueError:
-            await update.message.reply_text("❌ يرجى إدخال رقم صحيح!")
-    
-    # معالجة سعر الصرف الجديد
-    elif context.user_data.get('awaiting_exchange'):
-        try:
-            rate = float(text)
-            db.update_exchange_rate(rate)
-            await update.message.reply_text(
-                f"✅ تم تحديث سعر الصرف:\n1 دولار = `{rate}` ليرة سورية",
-                parse_mode='Markdown'
-            )
-            context.user_data['awaiting_exchange'] = False
-        except ValueError:
-            await update.message.reply_text("❌ يرجى إدخال رقم صحيح!")
-
 async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """عرض مساعدة الأدمن"""
     if update.effective_user.id != Config.ADMIN_ID:
         await update.message.reply_text("⛔ هذا الأمر مخصص للمدير فقط.")
         return
@@ -347,7 +346,6 @@ async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
 async def admin_update_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تحديث سعر الوقود عبر أمر"""
     if update.effective_user.id != Config.ADMIN_ID:
         return
     
@@ -381,7 +379,6 @@ async def admin_update_price(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ يرجى إدخال رقم صحيح للسعر!")
 
 async def admin_update_exchange(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تحديث سعر الصرف عبر أمر"""
     if update.effective_user.id != Config.ADMIN_ID:
         return
     
@@ -397,7 +394,6 @@ async def admin_update_exchange(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("❌ يرجى إدخال رقم صحيح!")
 
 async def admin_complaints(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """عرض الشكاوى للأدمن"""
     if update.effective_user.id != Config.ADMIN_ID:
         return
     
@@ -422,7 +418,6 @@ async def admin_complaints(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def admin_resolve(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تحديث حالة الشكوى"""
     if update.effective_user.id != Config.ADMIN_ID:
         return
     
@@ -438,7 +433,6 @@ async def admin_resolve(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ يرجى إدخال رقم صحيح!")
 
 def main():
-    """بدء البوت"""
     application = Application.builder().token(Config.BOT_TOKEN).build()
     
     # =============== أوامر عادية ===============
@@ -453,16 +447,10 @@ def main():
     # =============== معالجات الأزرار ===============
     application.add_handler(CallbackQueryHandler(button_callback))
     
-    # =============== معالجة الرسائل ===============
+    # =============== معالجة الرسائل (يجب أن تكون الأخيرة) ===============
     application.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND,
         handle_message
-    ))
-    
-    # =============== معالجة مدخلات الأدمن ===============
-    application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
-        handle_admin_input
     ))
     
     logger.info("Bot started...")
