@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text, BigInteger, inspect
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text, BigInteger, inspect, event
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -35,18 +35,54 @@ class Complaint(Base):
 class Database:
     def __init__(self, db_url=None, reset_tables=False):
         if db_url is None:
-            db_url = os.getenv("DATABASE_URL", "sqlite:///spc_bot.db")
+            # ✅ الحصول على DATABASE_URL من متغيرات البيئة
+            db_url = os.getenv("DATABASE_URL")
+            
+            if not db_url:
+                print("❌ خطأ: DATABASE_URL غير محدد في متغيرات البيئة!")
+                raise ValueError("DATABASE_URL environment variable is required")
+            
+            # ✅ تحويل postgres:// إلى postgresql://
             if db_url.startswith("postgres://"):
                 db_url = db_url.replace("postgres://", "postgresql://", 1)
+            
+            # ✅ إذا كان Railway يستخدم postgresql+psycopg2
+            if "postgresql://" in db_url and "psycopg2" not in db_url:
+                # محاولة إضافة محرك النص إذا لم يكن موجوداً
+                db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
         
-        self.engine = create_engine(db_url)
+        print(f"📊 Database URL: {db_url[:50]}...")
+        
+        try:
+            # ✅ استخدام pool_pre_ping للتحقق من الاتصال
+            self.engine = create_engine(
+                db_url,
+                echo=False,
+                pool_pre_ping=True,  # التحقق من الاتصال قبل استخدامه
+                pool_recycle=3600,   # إعادة تدوير الاتصال كل ساعة
+                connect_args={"connect_timeout": 10}
+            )
+            
+            # اختبار الاتصال
+            with self.engine.connect() as conn:
+                print("✅ Database connection successful!")
+            
+        except Exception as e:
+            print(f"❌ Database connection failed: {e}")
+            raise e
         
         if reset_tables:
             self._reset_all_tables()
         else:
             self._fix_schema_if_needed()
         
-        Base.metadata.create_all(self.engine)
+        try:
+            Base.metadata.create_all(self.engine)
+            print("✅ Tables created successfully!")
+        except Exception as e:
+            print(f"❌ Error creating tables: {e}")
+            raise e
+        
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
         self._init_defaults()
@@ -63,14 +99,14 @@ class Database:
                 if user_id_col:
                     col_type = str(user_id_col['type']).lower()
                     if 'integer' in col_type and 'big' not in col_type:
-                        print("Fixing complaints table: Integer -> BigInteger")
+                        print("⚠️ Fixing complaints table: Integer -> BigInteger")
                         self._reset_complaints_table()
                         
         except Exception as e:
-            print(f"Schema check warning: {e}")
+            print(f"⚠️ Schema check warning: {e}")
     
     def _reset_complaints_table(self):
-        """إعادة إنشاء جدول الشكاوى"""
+        """إعادة إنشاء جدو�� الشكاوى"""
         try:
             old_data = []
             try:
@@ -101,64 +137,101 @@ class Database:
                                 }
                             )
                         except Exception as e:
-                            print(f"Skipping row: {e}")
+                            print(f"⚠️ Skipping row: {e}")
                     conn.commit()
             
-            print("Complaints table recreated with BigInteger")
+            print("✅ Complaints table recreated with BigInteger")
             
         except Exception as e:
-            print(f"Reset error: {e}")
+            print(f"❌ Reset error: {e}")
             Complaint.__table__.drop(self.engine, checkfirst=True)
             Complaint.__table__.create(self.engine)
     
     def _reset_all_tables(self):
         """حذف وإعادة إنشاء جميع الجداول"""
-        print("Resetting all tables...")
+        print("🔄 Resetting all tables...")
         Base.metadata.drop_all(self.engine)
         Base.metadata.create_all(self.engine)
-        print("All tables recreated")
+        print("✅ All tables recreated")
     
     def _init_defaults(self):
         """تهيئة البيانات الافتراضية"""
-        fuel_types = ['بنزين', 'مازوت', 'غاز منزلي', 'غاز صناعي']
-        for fuel in fuel_types:
-            if not self.session.query(FuelPrice).filter_by(fuel_type=fuel).first():
-                self.session.add(FuelPrice(fuel_type=fuel))
-        
-        if not self.session.query(ExchangeRate).first():
-            self.session.add(ExchangeRate(usd_to_syp=1.0))
-        
-        self.session.commit()
+        try:
+            fuel_types = ['بنزين', 'مازوت', 'غاز منزلي', 'غاز صناعي']
+            for fuel in fuel_types:
+                if not self.session.query(FuelPrice).filter_by(fuel_type=fuel).first():
+                    self.session.add(FuelPrice(fuel_type=fuel, price_usd=0.0, price_syp=0.0))
+            
+            if not self.session.query(ExchangeRate).first():
+                self.session.add(ExchangeRate(usd_to_syp=15000.0))
+            
+            self.session.commit()
+            print("✅ Default data initialized")
+        except Exception as e:
+            print(f"❌ Error initializing defaults: {e}")
+            self.session.rollback()
     
     def get_fuel_price(self, fuel_type):
-        return self.session.query(FuelPrice).filter_by(fuel_type=fuel_type).first()
+        try:
+            return self.session.query(FuelPrice).filter_by(fuel_type=fuel_type).first()
+        except Exception as e:
+            print(f"❌ Error getting fuel price: {e}")
+            return None
     
     def get_all_prices(self):
-        return self.session.query(FuelPrice).all()
+        try:
+            return self.session.query(FuelPrice).all()
+        except Exception as e:
+            print(f"❌ Error getting all prices: {e}")
+            return []
     
     def update_fuel_price(self, fuel_type, price_usd=None, price_syp=None):
-        fuel = self.get_fuel_price(fuel_type)
-        if fuel:
-            if price_usd is not None:
-                fuel.price_usd = price_usd
-            if price_syp is not None:
-                fuel.price_syp = price_syp
-            fuel.updated_at = datetime.utcnow()
-            self.session.commit()
-            return True
-        return False
+        try:
+            fuel = self.get_fuel_price(fuel_type)
+            if fuel:
+                if price_usd is not None:
+                    fuel.price_usd = price_usd
+                if price_syp is not None:
+                    fuel.price_syp = price_syp
+                fuel.updated_at = datetime.utcnow()
+                self.session.commit()
+                print(f"✅ Price updated for {fuel_type}")
+                return True
+            else:
+                print(f"⚠️ Fuel type not found: {fuel_type}")
+            return False
+        except Exception as e:
+            print(f"❌ Error updating fuel price: {e}")
+            self.session.rollback()
+            return False
     
     def get_exchange_rate(self):
-        return self.session.query(ExchangeRate).first()
+        try:
+            rate = self.session.query(ExchangeRate).first()
+            if not rate:
+                # إنشاء معدل صرف افتراضي إذا لم يكن موجوداً
+                rate = ExchangeRate(usd_to_syp=15000.0)
+                self.session.add(rate)
+                self.session.commit()
+            return rate
+        except Exception as e:
+            print(f"❌ Error getting exchange rate: {e}")
+            return None
     
     def update_exchange_rate(self, rate):
-        ex = self.get_exchange_rate()
-        if ex:
-            ex.usd_to_syp = rate
-            ex.updated_at = datetime.utcnow()
-            self.session.commit()
-            return True
-        return False
+        try:
+            ex = self.get_exchange_rate()
+            if ex:
+                ex.usd_to_syp = rate
+                ex.updated_at = datetime.utcnow()
+                self.session.commit()
+                print(f"✅ Exchange rate updated to {rate}")
+                return True
+            return False
+        except Exception as e:
+            print(f"❌ Error updating exchange rate: {e}")
+            self.session.rollback()
+            return False
     
     def add_complaint(self, user_id, username, full_name, phone, complaint_text):
         try:
@@ -171,17 +244,26 @@ class Database:
             )
             self.session.add(complaint)
             self.session.commit()
+            print(f"✅ Complaint added with ID: {complaint.id}")
             return complaint
         except Exception as e:
             self.session.rollback()
-            print(f"Add complaint error: {e}")
+            print(f"❌ Add complaint error: {e}")
             raise e
     
     def get_all_complaints(self):
-        return self.session.query(Complaint).order_by(Complaint.created_at.desc()).all()
+        try:
+            return self.session.query(Complaint).order_by(Complaint.created_at.desc()).all()
+        except Exception as e:
+            print(f"❌ Error getting complaints: {e}")
+            return []
     
     def get_complaint(self, complaint_id):
-        return self.session.query(Complaint).filter_by(id=complaint_id).first()
+        try:
+            return self.session.query(Complaint).filter_by(id=complaint_id).first()
+        except Exception as e:
+            print(f"❌ Error getting complaint: {e}")
+            return None
     
     def update_complaint_status(self, complaint_id, status, admin_notes=None):
         try:
@@ -191,9 +273,10 @@ class Database:
                 if admin_notes:
                     complaint.admin_notes = admin_notes
                 self.session.commit()
+                print(f"✅ Complaint {complaint_id} status updated to {status}")
                 return True
             return False
         except Exception as e:
             self.session.rollback()
-            print(f"Update status error: {e}")
+            print(f"❌ Update status error: {e}")
             raise e
