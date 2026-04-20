@@ -1,6 +1,5 @@
 import google.generativeai as genai
-import json
-import re
+import asyncio
 from config import Config
 
 class GeminiAI:
@@ -34,7 +33,12 @@ class GeminiAI:
 
 قدم رداً طبيعياً وودياً بالعربية (فقرة قصيرة):"""
             
-            response = await self.model.generate_content_async(prompt)
+            # ✅ استخدام الطريقة الصحيحة (بدون async)
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None, 
+                lambda: self.model.generate_content(prompt)
+            )
             return response.text.strip()
             
         except Exception as e:
@@ -51,9 +55,14 @@ class GeminiAI:
 
 رد طبيعي ودي بالعربية (جملة أو جملتين):"""
             
-            response = await self.model.generate_content_async(prompt)
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.model.generate_content(prompt)
+            )
             return response.text.strip()
-        except:
+        except Exception as e:
+            print(f"Price response error: {e}")
             return f"⛽ سعر {fuel_type} حالياً:\n💵 {price.price_usd} دولار\n🇸🇾 {price.price_syp} ليرة سورية"
     
     async def generate_general_prices_response(self, prices, exchange_rate):
@@ -69,9 +78,14 @@ class GeminiAI:
 
 قدم جواباً ودياً يوضح جميع الأسعار المتاحة (فقرة قصيرة بالعربية):"""
             
-            response = await self.model.generate_content_async(prompt)
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.model.generate_content(prompt)
+            )
             return response.text.strip()
-        except:
+        except Exception as e:
+            print(f"General prices error: {e}")
             prices_text = "\n".join([f"• {p.fuel_type}: {p.price_syp} ل.س / {p.price_usd} $" for p in prices])
             return f"💰 *الأسعار الحالية:*\n{prices_text}\n\n💱 سعر الصرف: 1 دولار = {exchange_rate.usd_to_syp} ليرة سورية"
     
@@ -84,7 +98,12 @@ class GeminiAI:
 
 رسالة قصيرة بالعربية شكر العميل على الشكوى:"""
             
-            response = await self.model.generate_content_async(prompt)
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.model.generate_content(prompt)
+            )
             return response.text.strip()
-        except:
+        except Exception as e:
+            print(f"Complaint confirmation error: {e}")
             return f"✅ تم استلام شكواك بنجاح! 📝\n\nسيتم مراجعتها والتواصل معك على الرقم: {phone}\n\nشكراً لتواصلك معنا 🙏"
