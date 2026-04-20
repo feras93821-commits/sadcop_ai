@@ -17,33 +17,6 @@ class GeminiAI:
 - لا تستخدم JSON في الردود العادية
 - استخدم الإيموجي بشكل مناسب"""
 
-    async def analyze_intent(self, user_message):
-        """تحليل نية المستخدم فقط - لا توليد رد"""
-        try:
-            prompt = f"""حدد نية المستخدم من الرسالة التالية. رد بـ JSON فقط:
-{{
-    "intent": "price_query" أو "complaint_start" أو "general",
-    "fuel_type": "اسم الوقود إذا كان intent=price_query" أو null,
-    "confidence": رقم بين 0 و 1
-}}
-
-الرسالة: "{user_message}"
-
-JSON فقط:"""
-            
-            response = await self.model.generate_content_async(prompt)
-            text = response.text.strip()
-            
-            json_match = re.search(r'\{{.*\}}', text, re.DOTALL)
-            if json_match:
-                return json.loads(json_match.group())
-            
-            return {"intent": "general", "fuel_type": None, "confidence": 0.5}
-            
-        except Exception as e:
-            print(f"Intent analysis error: {e}")
-            return {"intent": "general", "fuel_type": None, "confidence": 0.5}
-    
     async def get_response(self, user_message, db_prices=None):
         """الحصول على رد عادي من الذكاء الاصطناعي"""
         try:
@@ -69,7 +42,7 @@ JSON فقط:"""
             return "عذراً، حدث خطأ في معالجة طلبك. يمكنك سؤالي عن أسعار المحروقات أو تقديم شكوى."
     
     async def generate_price_response(self, fuel_type, price, exchange_rate):
-        """توليد رد طبيعي عن السعر"""
+        """توليد رد طبيعي عن السعر المحدد"""
         try:
             prompt = f"""أخبر المستخدم عن سعر {fuel_type}:
 - السعر بالدولار: {price.price_usd} $
@@ -81,16 +54,37 @@ JSON فقط:"""
             response = await self.model.generate_content_async(prompt)
             return response.text.strip()
         except:
-            return f"⛽ سعر {fuel_type} حالياً:\n💵 {price.price_usd} دولار\n🇸🇾 {price.price_syp} ليرة سورية\n\n💱 سعر الصرف: {exchange_rate.usd_to_syp}"
+            return f"⛽ سعر {fuel_type} حالياً:\n💵 {price.price_usd} دولار\n🇸🇾 {price.price_syp} ليرة سورية"
     
-    async def generate_complaint_confirmation(self, complaint_text, phone):
-        """توليد رسالة تأكيد للشكوى"""
+    async def generate_general_prices_response(self, prices, exchange_rate):
+        """توليد رد عن جميع الأسعار عند السؤال العام"""
         try:
-            prompt = f"""أكد استلام الشكوى بشكل ودي. نص الشكوى: "{complaint_text}"
-رقم الهاتف: {phone}
-رسالة قصيرة بالعربية:"""
+            prices_list = "\n".join([f"- {p.fuel_type}: {p.price_syp} ل.س / {p.price_usd} $" for p in prices])
+            
+            prompt = f"""المستخدم يسأل عن أسعار المحروقات بشكل عام.
+الأسعار الحالية:
+{prices_list}
+
+سعر الصرف: 1 دولار = {exchange_rate.usd_to_syp} ليرة سورية
+
+قدم جواباً ودياً يوضح جميع الأسعار المتاحة (فقرة قصيرة بالعربية):"""
             
             response = await self.model.generate_content_async(prompt)
             return response.text.strip()
         except:
-            return "✅ تم استلام شكواك بنجاح! سيتم مراجعتها والتواصل معك قريباً."
+            prices_text = "\n".join([f"• {p.fuel_type}: {p.price_syp} ل.س / {p.price_usd} $" for p in prices])
+            return f"💰 *الأسعار الحالية:*\n{prices_text}\n\n💱 سعر الصرف: 1 دولار = {exchange_rate.usd_to_syp} ليرة سورية"
+    
+    async def generate_complaint_confirmation(self, complaint_text, phone):
+        """توليد رسالة تأكيد للشكوى"""
+        try:
+            prompt = f"""أكد استلام الشكوى بشكل ودي.
+نص الشكوى: "{complaint_text}"
+رقم الهاتف: {phone}
+
+رسالة قصيرة بالعربية شكر العميل على الشكوى:"""
+            
+            response = await self.model.generate_content_async(prompt)
+            return response.text.strip()
+        except:
+            return f"✅ تم استلام شكواك بنجاح! 📝\n\nسيتم مراجعتها والتواصل معك على الرقم: {phone}\n\nشكراً لتواصلك معنا 🙏"
