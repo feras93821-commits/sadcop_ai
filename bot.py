@@ -9,6 +9,10 @@ from database import Database
 from gemini_ai import GeminiAI
 from admin_panel import AdminPanel
 
+# ✅ تقليل رسائل httpx
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("telegram").setLevel(logging.WARNING)
+
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -46,7 +50,7 @@ COMPLAINT_KEYWORDS = ['شكوى', 'شكوة', 'شكوي', 'complaint', 'تقدي
                       'نشكو', 'نشكي', 'تذمر']
 
 PRICE_KEYWORDS = ['سعر', 'كم', 'price', 'cost', 'قيمة', 'ثمن', 'بكام', 'بدفع', 
-                  'بكم', 'السعر', 'كام', 'أسعار']
+                  'بكم', 'السعر', 'كام', 'أسعار', 'اسعار']
 
 def detect_fuel_type(text):
     text_lower = text.lower()
@@ -82,7 +86,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     
-    # ✅ معالجة تعديل السعر للأدمن
+    # ================== حالة تعديل السعر ==================
     if current_state == STATE_EDITING_PRICE and user.id == Config.ADMIN_ID:
         try:
             price_syp = float(text)
@@ -94,17 +98,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if fuel:
                 ex_rate = db.get_exchange_rate().usd_to_syp
                 price_usd = round(price_syp / ex_rate, 2) if ex_rate > 0 else 0
+                price_syp_new = round(price_syp / 100, 2)
                 
-                db.update_fuel_price(fuel.fuel_type, price_usd=price_usd, price_syp=price_syp)
+                db.update_fuel_price(fuel.fuel_type, price_usd=price_usd, price_syp=price_syp, price_syp_new=price_syp_new)
                 
                 await update.message.reply_text(
                     f"✅ تم تحديث سعر *{fuel.fuel_type}*:\n"
-                    f"🇸🇾 `{price_syp}` ليرة\n"
+                    f"🇸🇾 `{price_syp:,.0f}` ليرة (قديم)\n"
+                    f"🇸🇾 `{price_syp_new:,.0f}` ليرة (جديد)\n"
                     f"💵 `{price_usd}` دولار",
                     parse_mode='Markdown'
                 )
                 
-                # العودة للقائمة الرئيسية
                 context.user_data['state'] = STATE_NORMAL
                 keyboard = [[InlineKeyboardButton("↩️ العودة للقائمة الرئيسية", callback_data='admin_menu')]]
                 await update.message.reply_text(
@@ -116,10 +121,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         except ValueError:
             await update.message.reply_text("❌ يرجى إدخال رقم صحيح! مثال: `8500`", parse_mode='Markdown')
-            return
         return
     
-    # ✅ معالجة تعديل سعر الصرف للأدمن
+    # ================== حالة تعديل سعر الصرف ==================
     if current_state == STATE_EDITING_EXCHANGE and user.id == Config.ADMIN_ID:
         try:
             rate = float(text)
@@ -131,7 +135,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown'
             )
             
-            # العودة للقائمة الرئيسية
             context.user_data['state'] = STATE_NORMAL
             keyboard = [[InlineKeyboardButton("↩️ العودة للقائمة الرئيسية", callback_data='admin_menu')]]
             await update.message.reply_text(
@@ -139,8 +142,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         except ValueError:
-            await update.message.reply_text("❌ يرجى إ��خال رقم صحيح! مثال: `15000`", parse_mode='Markdown')
-            return
+            await update.message.reply_text("❌ يرجى إدخال رقم صحيح! مثال: `15000`", parse_mode='Markdown')
         return
     
     # ================== حالة انتظار الشكوى ==================
@@ -194,26 +196,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(confirmation)
         return
     
-    # ================== معالجة أسئلة الأسعار ==================
-    fuel_type = detect_fuel_type(text)
-    
-    if is_price_query(text):
-        if fuel_type:
-            price = db.get_fuel_price(fuel_type)
-            ex_rate = db.get_exchange_rate()
-            
-            if price:
-                response = await ai.generate_price_response(fuel_type, price, ex_rate)
-                await update.message.reply_text(response)
-                return
-        else:
-            prices = db.get_all_prices()
-            ex_rate = db.get_exchange_rate()
-            response = await ai.generate_general_prices_response(prices, ex_rate)
-            await update.message.reply_text(response)
-            return
-    
-    # ================== معالجة طلب الشكوى ==================
+    # ================== معالجة طلب الشكوى (قبل الأسعار) ==================
     if is_complaint_request(text):
         context.user_data['state'] = STATE_AWAITING_COMPLAINT
         
@@ -225,13 +208,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # ================== الاستجابة العامة ==================
+    # ================== معالجة أسئلة الأسعار ==================
+    fuel_type = detect_fuel_type(text)
+    
+    if is_price_query(text):
+        if fuel_type:
+            # سؤال عن سعر معين
+            price = db.get_fuel_price(fuel_type)
+            ex_rate = db.get_exchange_rate()
+            
+            if price:
+                response = await ai.generate_price_response(fuel_type, price, ex_rate)
+                await update.message.reply_text(response)
+                return
+        else:
+            # سؤال عام عن الأسعار
+            prices = db.get_all_prices()
+            ex_rate = db.get_exchange_rate()
+            response = await ai.generate_general_prices_response(prices, ex_rate)
+            await update.message.reply_text(response)
+            return
+    
+    # ================== الاستجابة العامة (الخيار الأخير) ==================
     try:
+        print(f"📝 User message: {text}")
+        print(f"🤖 Calling AI...")
         prices = db.get_all_prices()
         response = await ai.get_response(text, prices)
+        print(f"✅ AI Response: {response[:50]}...")
         await update.message.reply_text(response)
     except Exception as e:
         logger.error(f"AI Error: {e}")
+        print(f"❌ Error: {e}")
         await update.message.reply_text(
             "مرحباً! 👋\n\n"
             "يمكنني مساعدتك في:\n"
@@ -244,7 +252,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==================== معالجات الأدمن ====================
 
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """عرض لوحة تحكم الأدمن"""
     if update.effective_user.id != Config.ADMIN_ID:
         await update.message.reply_text("⛔ هذا الأمر مخصص للمدير فقط.")
         return
@@ -253,7 +260,6 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await admin_panel.show_admin_menu(update, context)
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالج الأزرار التفاعلية"""
     if update.effective_user.id != Config.ADMIN_ID:
         await update.callback_query.answer("⛔ ليس لديك صلاحية!", show_alert=True)
         return
@@ -299,7 +305,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 *الأسعار الحالية:*
 """
             for p in prices:
-                stats += f"\n• {p.fuel_type}: `{p.price_syp}` ل.س / `{p.price_usd}` $"
+                stats += f"\n• {p.fuel_type}: {p.price_syp:,.0f} ل.س (قديم) / {p.price_syp_new:,.0f} ل.س (جديد) / {p.price_usd} $"
             
             keyboard = [[InlineKeyboardButton("🔙 رجوع", callback_data='admin_menu')]]
             await query.edit_message_text(stats, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
@@ -368,7 +374,7 @@ async def admin_update_price(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if db.update_fuel_price(fuel_type, price_usd=price_usd, price_syp=price_syp):
             await update.message.reply_text(
                 f"✅ تم تحديث سعر *{fuel_type}*:\n"
-                f"🇸🇾 `{price_syp}` ليرة\n"
+                f"🇸🇾 `{price_syp:,.0f}` ليرة\n"
                 f"💵 `{price_usd}` دولار",
                 parse_mode='Markdown'
             )
@@ -453,7 +459,7 @@ def main():
         handle_message
     ))
     
-    logger.info("Bot started...")
+    logger.info("🚀 Bot started successfully!")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
