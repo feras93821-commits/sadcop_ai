@@ -176,7 +176,8 @@ class Database:
             print(f"Error getting all prices: {e}")
             return []
     
-    def update_fuel_price(self, fuel_type, price_usd=None, price_syp=None, price_syp_new=None):
+       def update_fuel_price(self, fuel_type, price_usd=None, price_syp=None, price_syp_new=None):
+        """تحديث سعر الوقود - يحسب العملة الجديدة تلقائياً (قسمة على 100)"""
         try:
             fuel = self.get_fuel_price(fuel_type)
             if fuel:
@@ -184,10 +185,10 @@ class Database:
                     fuel.price_usd = price_usd
                 if price_syp is not None:
                     fuel.price_syp = price_syp
-                if price_syp_new is not None:
-                    fuel.price_syp_new = price_syp_new
-                elif price_syp is not None:
+                    # ✅ حساب العملة الجديدة تلقائياً: حذف صفرين
                     fuel.price_syp_new = round(float(price_syp) / 100.0, 2)
+                elif price_syp_new is not None:
+                    fuel.price_syp_new = price_syp_new
                 
                 fuel.updated_at = datetime.utcnow()
                 self.session.commit()
