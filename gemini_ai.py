@@ -26,7 +26,7 @@ class GeminiAI:
             js = r.json()
 
             return js["choices"][0]["message"]["content"]
-except Exception as e:
-    print("REAL ERROR:", repr(e))
-    return f"خطأ: {str(e)[:200]}"
-       
+
+       except Exception as e:
+    print("Gemini Error:", repr(e))
+    return "الخدمة الذكية غير متاحة حالياً."
