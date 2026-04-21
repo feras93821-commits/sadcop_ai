@@ -102,11 +102,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 price_usd = round(price_syp / ex_rate, 2) if ex_rate > 0 else 0
                 price_syp_new = round(price_syp / 100, 2)
                 db.update_fuel_price(fuel.fuel_type, price_usd=price_usd, price_syp=price_syp, price_syp_new=price_syp_new)
-                msg = (
-                    f"تم تحديث سعر *{fuel.fuel_type}*:\n"
-                    f"ليرة (قديم): `{price_syp:,.0f}`\n"
-                    f"ليرة (جديد): `{price_syp_new:,.2f}`\n"
-                    f"دولار: `{price_usd}`"
+                msg = "تم تحديث سعر *%s*:\nليرة (قديم): `%s`\nليرة (جديد): `%s`\nدولار: `%s`" % (
+                    fuel.fuel_type,
+                    f"{price_syp:,.0f}",
+                    f"{price_syp_new:,.2f}",
+                    str(price_usd)
                 )
                 await update.message.reply_text(msg, parse_mode='Markdown')
                 context.user_data['state'] = STATE_NORMAL
@@ -122,7 +122,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             rate = float(text)
             db.update_exchange_rate(rate)
-            msg = f"تم تحديث سعر الصرف:\n1 دولار = `{rate}` ليرة سورية"
+            msg = "تم تحديث سعر الصرف:\n1 دولار = `%s` ليرة سورية" % str(rate)
             await update.message.reply_text(msg, parse_mode='Markdown')
             context.user_data['state'] = STATE_NORMAL
             keyboard = [[InlineKeyboardButton("العودة للقائمة", callback_data='admin_menu')]]
@@ -134,11 +134,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if current_state == STATE_AWAITING_COMPLAINT:
         context.user_data['complaint_text'] = text
         context.user_data['state'] = STATE_AWAITING_PHONE
-        msg = (
-            f"شكراً لك على توضيح الشكوى\n\n"
-            f"رقم الشكاوى: {Config.COMPLAINT_PHONE}\n\n"
-            f"الآن يرجى إرسال رقم هاتفك للتواصل معك (أو اكتب 'تخطي'):"
-        )
+        msg = "شكراً لك على توضيح الشكوى\n\nرقم الشكاوى: %s\n\nالآن يرجى إرسال رقم هاتفك للتواصل معك (أو اكتب 'تخطي'):" % Config.COMPLAINT_PHONE
         await update.message.reply_text(msg, parse_mode='Markdown')
         return
 
@@ -154,27 +150,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             complaint_text=context.user_data.get('complaint_text', '')
         )
         try:
-            admin_msg = (
-                f"شكوى جديدة #{complaint.id}\n"
-                f"المرسل: {complaint.full_name}\n"
-                f"الهاتف: {complaint.phone}\n"
-                f"الشكوى: {complaint.complaint_text}\n"
-                f"التاريخ: {complaint.created_at.strftime('%Y-%m-%d %H:%M')}"
+            admin_msg = "شكوى جديدة #%d\nالمرسل: %s\nالهاتف: %s\nالشكوى: %s\nالتاريخ: %s" % (
+                complaint.id,
+                complaint.full_name,
+                complaint.phone,
+                complaint.complaint_text,
+                complaint.created_at.strftime('%Y-%m-%d %H:%M')
             )
             await context.bot.send_message(chat_id=Config.ADMIN_ID, text=admin_msg, parse_mode='Markdown')
         except Exception as e:
-            logger.error(f"Failed to notify admin: {e}")
+            logger.error("Failed to notify admin: %s" % str(e))
         confirmation = await ai.generate_complaint_confirmation(context.user_data.get('complaint_text', ''), phone)
         await update.message.reply_text(confirmation)
         return
 
     if is_complaint_request(text):
         context.user_data['state'] = STATE_AWAITING_COMPLAINT
-        msg = (
-            f"بالطبع، يمكنني مساعدتك في تقديم شكوى\n\n"
-            f"رقم الشكاوى: {Config.COMPLAINT_PHONE}\n\n"
-            f"يرجى كتابة تفاصيل الشكوى:"
-        )
+        msg = "بالطبع، يمكنني مساعدتك في تقديم شكوى\n\nرقم الشكاوى: %s\n\nيرجى كتابة تفاصيل الشكوى:" % Config.COMPLAINT_PHONE
         await update.message.reply_text(msg, parse_mode='Markdown')
         return
 
@@ -198,23 +190,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     try:
-        print(f"User message: {text}")
+        print("User message: %s" % text)
         prices = db.get_all_prices()
         response = await ai.get_response(text, prices)
         if not response or len(response.strip()) < 10:
             raise ValueError("AI returned empty or too short response")
-        print(f"AI Response: {response[:50]}...")
+        print("AI Response: %s..." % response[:50])
         await update.message.reply_text(response)
     except Exception as e:
-        logger.error(f"AI Error: {e}")
-        print(f"Error: {e}")
+        logger.error("AI Error: %s" % str(e))
+        print("Error: %s" % str(e))
         await update.message.reply_text(
-            "مرحباً!\n\n"
-            "يمكنني مساعدتك في:\n"
-            "- معرفة أسعار المحروقات (بنزين، مازوت، غاز...)\n"
-            "- تقديم شكوى أو اقتراح\n"
-            "- الرد على استفساراتك العامة\n\n"
-            "جرب أن تسألني مثلاً: *كم سعر البنزين؟* أو *أريد تقديم شكوى*",
+            "مرحباً!\n\nيمكنني مساعدتك في:\n- معرفة أسعار المحروقات (بنزين، مازوت، غاز...)\n- تقديم شكوى أو اقتراح\n- الرد على استفساراتك العامة\n\nجرب أن تسألني مثلاً: *كم سعر البنزين؟* أو *أريد تقديم شكوى*",
             parse_mode='Markdown'
         )
 
@@ -245,11 +232,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         elif data == 'admin_exchange':
             await query.answer()
-            msg = (
-                "تعديل سعر الصرف\n\n"
-                "أرسل السعر الجديد (1 دولار = كم ليرة؟)\n"
-                "مثال: `15000`"
-            )
+            msg = "تعديل سعر الصرف\n\nأرسل السعر الجديد (1 دولار = كم ليرة؟)\nمثال: `15000`"
             await query.edit_message_text(
                 msg,
                 parse_mode='Markdown',
@@ -268,17 +251,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             stats_lines = [
                 "إحصائيات البوت",
                 "",
-                f"أنواع الوقود: {len(prices)}",
-                f"إجمالي الشكاوى: {len(complaints)}",
-                f"قيد الانتظار: {pending}",
-                f"سعر الصرف: `{db.get_exchange_rate().usd_to_syp}`",
+                "أنواع الوقود: %d" % len(prices),
+                "إجمالي الشكاوى: %d" % len(complaints),
+                "قيد الانتظار: %d" % pending,
+                "سعر الصرف: `%s`" % str(db.get_exchange_rate().usd_to_syp),
                 "",
                 "الأسعار الحالية:"
             ]
             for p in prices:
                 stats_lines.append(
-                    f"- {p.fuel_type}: {p.price_syp:,.0f} ل.س (قديم) / "
-                    f"{p.price_syp_new:,.2f} ل.س (جديد) / {p.price_usd} $"
+                    "- %s: %s ل.س (قديم) / %s ل.س (جديد) / %s $" % (
+                        p.fuel_type, f"{p.price_syp:,.0f}", f"{p.price_syp_new:,.2f}", str(p.price_usd)
+                    )
                 )
             stats = "\n".join(stats_lines)
             keyboard = [[InlineKeyboardButton("رجوع", callback_data='admin_menu')]]
@@ -300,7 +284,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['state'] = STATE_NORMAL
 
     except Exception as e:
-        logger.error(f"Callback error: {e}")
+        logger.error("Callback error: %s" % str(e))
         await query.answer("حدث خطأ!", show_alert=True)
 
 
@@ -332,8 +316,7 @@ async def admin_update_price(update: Update, context: ContextTypes.DEFAULT_TYPE)
         args = context.args
         if len(args) < 2:
             await update.message.reply_text(
-                "الاستخدام: /setprice [نوع الوقود] [السعر بالليرة]\n"
-                "مثال: /setprice بنزين 8500",
+                "الاستخدام: /setprice [نوع الوقود] [السعر بالليرة]\nمثال: /setprice بنزين 8500",
                 parse_mode='Markdown'
             )
             return
@@ -342,10 +325,8 @@ async def admin_update_price(update: Update, context: ContextTypes.DEFAULT_TYPE)
         ex_rate = db.get_exchange_rate().usd_to_syp
         price_usd = round(price_syp / ex_rate, 2) if ex_rate > 0 else 0
         if db.update_fuel_price(fuel_type, price_usd=price_usd, price_syp=price_syp):
-            msg = (
-                f"تم تحديث سعر *{fuel_type}*:\n"
-                f"ليرة: `{price_syp:,.0f}`\n"
-                f"دولار: `{price_usd}`"
+            msg = "تم تحديث سعر *%s*:\nليرة: `%s`\nدولار: `%s`" % (
+                fuel_type, f"{price_syp:,.0f}", str(price_usd)
             )
             await update.message.reply_text(msg, parse_mode='Markdown')
         else:
@@ -363,7 +344,7 @@ async def admin_update_exchange(update: Update, context: ContextTypes.DEFAULT_TY
             return
         rate = float(context.args[0])
         db.update_exchange_rate(rate)
-        msg = f"تم تحديث سعر الصرف:\n1 دولار = `{rate}` ليرة سورية"
+        msg = "تم تحديث سعر الصرف:\n1 دولار = `%s` ليرة سورية" % str(rate)
         await update.message.reply_text(msg, parse_mode='Markdown')
     except ValueError:
         await update.message.reply_text("يرجى إدخال رقم صحيح!")
@@ -378,14 +359,14 @@ async def admin_complaints(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     for c in complaints[:5]:
         status = {"pending": "قيد الانتظار", "reviewed": "قيد المراجعة", "resolved": "تم الحل"}.get(c.status, "غير معروف")
-        msg = (
-            f"شكوى #{c.id}\n"
-            f"الاسم: {c.full_name or 'غير معروف'}\n"
-            f"الهاتف: {c.phone or 'غير متوفر'}\n"
-            f"التاريخ: {c.created_at.strftime('%Y-%m-%d %H:%M')}\n"
-            f"الحالة: {status}\n"
-            f"النص: {c.complaint_text}\n\n"
-            f"للتحديث: /resolve {c.id}"
+        msg = "شكوى #%d\nالاسم: %s\nالهاتف: %s\nالتاريخ: %s\nالحالة: %s\nالنص: %s\n\nللتحديث: /resolve %d" % (
+            c.id,
+            c.full_name or 'غير معروف',
+            c.phone or 'غير متوفر',
+            c.created_at.strftime('%Y-%m-%d %H:%M'),
+            status,
+            c.complaint_text,
+            c.id
         )
         await update.message.reply_text(msg, parse_mode='Markdown')
 
@@ -399,7 +380,7 @@ async def admin_resolve(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         comp_id = int(context.args[0])
         db.update_complaint_status(comp_id, 'resolved')
-        msg = f"تم تحديث شكوى #{comp_id} إلى *تم الحل*"
+        msg = "تم تحديث شكوى #%d إلى *تم الحل*" % comp_id
         await update.message.reply_text(msg, parse_mode='Markdown')
     except ValueError:
         await update.message.reply_text("يرجى إدخال رقم صحيح!")

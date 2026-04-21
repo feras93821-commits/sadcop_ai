@@ -25,30 +25,26 @@ class AdminPanel:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        text = "لوحة تحكم الأدمن\n\nاختر الإجراء المطلوب:"
+
         try:
             if update.callback_query:
                 await update.callback_query.edit_message_text(
-                    "لوحة تحكم الأدمن
-
-اختر الإجراء المطلوب:",
+                    text,
                     reply_markup=reply_markup,
                     parse_mode='Markdown'
                 )
             elif update.message:
                 await update.message.reply_text(
-                    "لوحة تحكم الأدمن
-
-اختر الإجراء المطلوب:",
+                    text,
                     reply_markup=reply_markup,
                     parse_mode='Markdown'
                 )
         except Exception as e:
-            print(f"show_admin_menu error: {e}")
+            print("show_admin_menu error: %s" % str(e))
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text="لوحة تحكم الأدمن
-
-اختر الإجراء المطلوب:",
+                text=text,
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
@@ -61,7 +57,7 @@ class AdminPanel:
             try:
                 await query.answer()
             except Exception as e:
-                print(f"query.answer() error: {e}")
+                print("query.answer() error: %s" % str(e))
 
         try:
             prices = self.db.get_all_prices() or []
@@ -79,8 +75,7 @@ class AdminPanel:
                     await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=reply_markup, parse_mode='Markdown')
                 return
 
-            text_lines = ["تعديل أسعار المحروقات:
-"]
+            text_lines = ["تعديل أسعار المحروقات:\n"]
             keyboard = []
 
             for price in prices:
@@ -88,32 +83,31 @@ class AdminPanel:
                 price_syp = getattr(price, "price_syp", 0) or 0
                 price_syp_new = getattr(price, "price_syp_new", 0) or 0
 
-                text_lines.append(f"*{price.fuel_type}*")
-                text_lines.append(f"  دولار: `{price_usd}`")
-                text_lines.append(f"  قديم: `{int(price_syp):,}` ل.س")
-                text_lines.append(f"  جديد: `{price_syp_new:,.2f}` ل.س")
+                text_lines.append("*%s*" % price.fuel_type)
+                text_lines.append("  دولار: `%s`" % str(price_usd))
+                text_lines.append("  قديم: `%s` ل.س" % f"{int(price_syp):,}")
+                text_lines.append("  جديد: `%s` ل.س" % f"{price_syp_new:,.2f}")
                 text_lines.append("")
 
                 keyboard.append([
-                    InlineKeyboardButton(f"تعديل {price.fuel_type}", callback_data=f'edit_price_{price.id}')
+                    InlineKeyboardButton("تعديل %s" % price.fuel_type, callback_data='edit_price_%d' % price.id)
                 ])
 
             keyboard.append([InlineKeyboardButton("رجوع", callback_data='admin_menu')])
             reply_markup = InlineKeyboardMarkup(keyboard)
-            text = "
-".join(text_lines)
+            text = "\n".join(text_lines)
 
             if query:
                 try:
                     await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
                 except Exception as e:
-                    print(f"edit_message_text error: {e}")
+                    print("edit_message_text error: %s" % str(e))
                     await query.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
             else:
                 await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=reply_markup, parse_mode='Markdown')
 
         except Exception as e:
-            print(f"show_prices_editor fatal error: {e}")
+            print("show_prices_editor fatal error: %s" % str(e))
             target = update.effective_chat.id if getattr(update, "effective_chat", None) else Config.ADMIN_ID
             await context.bot.send_message(
                 chat_id=target,
@@ -128,7 +122,7 @@ class AdminPanel:
             try:
                 await query.answer()
             except Exception as e:
-                print(f"handle_price_edit query.answer error: {e}")
+                print("handle_price_edit query.answer error: %s" % str(e))
 
         try:
             data = query.data if query else ""
@@ -145,15 +139,11 @@ class AdminPanel:
             fuel_name = next((p.fuel_type for p in prices if p.id == price_id), "الوقود")
 
             prompt_text = (
-                f"تعديل سعر {fuel_name}
-
-"
-                f"أرسل السعر بالليرة السورية (القديمة).
-"
-                f"سيتم حساب السعر الجديد تلقائياً (قسمة على 100).
-"
-                f"مثال: `8500`"
-            )
+                "تعديل سعر %s\n\n"
+                "أرسل السعر بالليرة السورية (القديمة).\n"
+                "سيتم حساب السعر الجديد تلقائياً (قسمة على 100).\n"
+                "مثال: `8500`"
+            ) % fuel_name
 
             cancel_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("إلغاء", callback_data='admin_menu')]])
 
@@ -161,13 +151,13 @@ class AdminPanel:
                 try:
                     await query.edit_message_text(prompt_text, parse_mode='Markdown', reply_markup=cancel_keyboard)
                 except Exception as e:
-                    print(f"handle_price_edit edit_message_text error: {e}")
+                    print("handle_price_edit edit_message_text error: %s" % str(e))
                     await query.message.reply_text(prompt_text, parse_mode='Markdown', reply_markup=cancel_keyboard)
             else:
                 await context.bot.send_message(chat_id=update.effective_chat.id, text=prompt_text, parse_mode='Markdown', reply_markup=cancel_keyboard)
 
         except Exception as e:
-            print(f"handle_price_edit error: {e}")
+            print("handle_price_edit error: %s" % str(e))
             await context.bot.send_message(chat_id=Config.ADMIN_ID, text="حدث خطأ أثناء بدء تعديل السعر.")
 
     async def show_complaints(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -178,7 +168,7 @@ class AdminPanel:
             try:
                 await query.answer()
             except Exception as e:
-                print(f"show_complaints query.answer error: {e}")
+                print("show_complaints query.answer error: %s" % str(e))
 
         try:
             complaints = self.db.get_all_complaints()
@@ -202,20 +192,28 @@ class AdminPanel:
 
                 keyboard = [
                     [
-                        InlineKeyboardButton("حل", callback_data=f'comp_status_{c.id}_resolved'),
-                        InlineKeyboardButton("مراجعة", callback_data=f'comp_status_{c.id}_reviewed'),
-                        InlineKeyboardButton("انتظار", callback_data=f'comp_status_{c.id}_pending')
+                        InlineKeyboardButton("حل", callback_data='comp_status_%d_resolved' % c.id),
+                        InlineKeyboardButton("مراجعة", callback_data='comp_status_%d_reviewed' % c.id),
+                        InlineKeyboardButton("انتظار", callback_data='comp_status_%d_pending' % c.id)
                     ]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
 
-                msg = f"""شكوى #{c.id}
-
-الاسم: {c.full_name or 'غير معروف'}
-الهاتف: {c.phone or 'غير متوفر'}
-التاريخ: {c.created_at.strftime('%Y-%m-%d %H:%M')}
-الحالة: {status}
-النص: {c.complaint_text}"""
+                msg = (
+                    "شكوى #%d\n\n"
+                    "الاسم: %s\n"
+                    "الهاتف: %s\n"
+                    "التاريخ: %s\n"
+                    "الحالة: %s\n"
+                    "النص: %s"
+                ) % (
+                    c.id,
+                    c.full_name or 'غير معروف',
+                    c.phone or 'غير متوفر',
+                    c.created_at.strftime('%Y-%m-%d %H:%M'),
+                    status,
+                    c.complaint_text
+                )
 
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
@@ -233,7 +231,7 @@ class AdminPanel:
             )
 
         except Exception as e:
-            print(f"show_complaints error: {e}")
+            print("show_complaints error: %s" % str(e))
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
                 text="حدث خطأ أثناء تحميل الشكاوى."
