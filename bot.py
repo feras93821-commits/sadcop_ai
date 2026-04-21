@@ -210,6 +210,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # ================== معالجة أسئلة الأسعار ==================
        # ================== معالجة أسئلة الأسعار ==================
+       # ================== معالجة اسئلة الاسعار ==================
     fuel_type = detect_fuel_type(text)
     
     if is_price_query(text):
@@ -222,17 +223,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 response = await ai.generate_price_response(fuel_type, price, ex_rate)
                 await update.message.reply_text(response)
                 return
+            else:
+                await update.message.reply_text(f"عذراً، لم يتم العثور على سعر {fuel_type}")
+                return
         else:
-            # سؤال عام عن الأسعار
+            # سؤال عام عن الاسعار
             prices = db.get_all_prices()
             ex_rate = db.get_exchange_rate()
             
-            # ✅ التحقق من ex_rate
-            if ex_rate is None:
-                print("⚠️ Warning: Exchange rate is None, using default")
-                # إنشاء كائن مؤقت مع قيمة افتراضية
-                from database import ExchangeRate
-                ex_rate = ExchangeRate(usd_to_syp=15000.0)
+            if not prices:
+                await update.message.reply_text("عذراً، لا توجد اسعار متاحة حالياً.")
+                return
             
             response = await ai.generate_general_prices_response(prices, ex_rate)
             await update.message.reply_text(response)
