@@ -11,8 +11,8 @@ class FuelPrice(Base):
     id = Column(Integer, primary_key=True)
     fuel_type = Column(String(50), unique=True, nullable=False)
     price_usd = Column(Float, default=0.0)
-    price_syp = Column(Float, default=0.0)      # العملة القديمة
-    price_syp_new = Column(Float, default=0.0)    # العملة الجديدة (مقسومة على 100)
+    price_syp = Column(Float, default=0.0)
+    price_syp_new = Column(Float, default=0.0)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
 class ExchangeRate(Base):
@@ -39,7 +39,7 @@ class Database:
             db_url = os.getenv("DATABASE_URL")
             
             if not db_url:
-                print("❌ خطأ: DATABASE_URL غير محدد في متغيرات البيئة!")
+                print("ERROR: DATABASE_URL not set!")
                 raise ValueError("DATABASE_URL environment variable is required")
             
             if db_url.startswith("postgres://"):
@@ -48,7 +48,7 @@ class Database:
             if "postgresql://" in db_url and "psycopg2" not in db_url:
                 db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
         
-        print(f"📊 Database URL: {db_url[:50]}...")
+        print(f"Database URL: {db_url[:50]}...")
         
         try:
             self.engine = create_engine(
@@ -60,10 +60,10 @@ class Database:
             )
             
             with self.engine.connect() as conn:
-                print("✅ Database connection successful!")
+                print("Database connection successful!")
             
         except Exception as e:
-            print(f"❌ Database connection failed: {e}")
+            print(f"Database connection failed: {e}")
             raise e
         
         if reset_tables:
@@ -73,9 +73,9 @@ class Database:
         
         try:
             Base.metadata.create_all(self.engine)
-            print("✅ Tables created successfully!")
+            print("Tables created successfully!")
         except Exception as e:
-            print(f"❌ Error creating tables: {e}")
+            print(f"Error creating tables: {e}")
             raise e
         
         Session = sessionmaker(bind=self.engine)
@@ -93,11 +93,11 @@ class Database:
                 if user_id_col:
                     col_type = str(user_id_col['type']).lower()
                     if 'integer' in col_type and 'big' not in col_type:
-                        print("⚠️ Fixing complaints table: Integer -> BigInteger")
+                        print("Fixing complaints table: Integer -> BigInteger")
                         self._reset_complaints_table()
                         
         except Exception as e:
-            print(f"⚠️ Schema check warning: {e}")
+            print(f"Schema check warning: {e}")
     
     def _reset_complaints_table(self):
         try:
@@ -130,21 +130,21 @@ class Database:
                                 }
                             )
                         except Exception as e:
-                            print(f"⚠️ Skipping row: {e}")
+                            print(f"Skipping row: {e}")
                     conn.commit()
             
-            print("✅ Complaints table recreated with BigInteger")
+            print("Complaints table recreated with BigInteger")
             
         except Exception as e:
-            print(f"❌ Reset error: {e}")
+            print(f"Reset error: {e}")
             Complaint.__table__.drop(self.engine, checkfirst=True)
             Complaint.__table__.create(self.engine)
     
     def _reset_all_tables(self):
-        print("🔄 Resetting all tables...")
+        print("Resetting all tables...")
         Base.metadata.drop_all(self.engine)
         Base.metadata.create_all(self.engine)
-        print("✅ All tables recreated")
+        print("All tables recreated")
     
     def _init_defaults(self):
         try:
@@ -157,27 +157,26 @@ class Database:
                 self.session.add(ExchangeRate(usd_to_syp=15000.0))
             
             self.session.commit()
-            print("✅ Default data initialized")
+            print("Default data initialized")
         except Exception as e:
-            print(f"❌ Error initializing defaults: {e}")
+            print(f"Error initializing defaults: {e}")
             self.session.rollback()
     
     def get_fuel_price(self, fuel_type):
         try:
             return self.session.query(FuelPrice).filter_by(fuel_type=fuel_type).first()
         except Exception as e:
-            print(f"❌ Error getting fuel price: {e}")
+            print(f"Error getting fuel price: {e}")
             return None
     
     def get_all_prices(self):
         try:
             return self.session.query(FuelPrice).all()
         except Exception as e:
-            print(f"❌ Error getting all prices: {e}")
+            print(f"Error getting all prices: {e}")
             return []
     
     def update_fuel_price(self, fuel_type, price_usd=None, price_syp=None, price_syp_new=None):
-        """تحديث سعر الوقود - الآن يدعم price_syp_new"""
         try:
             fuel = self.get_fuel_price(fuel_type)
             if fuel:
@@ -185,7 +184,6 @@ class Database:
                     fuel.price_usd = price_usd
                 if price_syp is not None:
                     fuel.price_syp = price_syp
-                # ✅ إذا لم يُمرر price_syp_new، احسبه تلقائياً
                 if price_syp_new is not None:
                     fuel.price_syp_new = price_syp_new
                 elif price_syp is not None:
@@ -193,29 +191,28 @@ class Database:
                 
                 fuel.updated_at = datetime.utcnow()
                 self.session.commit()
-                print(f"✅ Price updated for {fuel_type}: USD={fuel.price_usd}, SYP_OLD={fuel.price_syp}, SYP_NEW={fuel.price_syp_new}")
+                print(f"Price updated for {fuel_type}: USD={fuel.price_usd}, SYP_OLD={fuel.price_syp}, SYP_NEW={fuel.price_syp_new}")
                 return True
             else:
-                print(f"⚠️ Fuel type not found: {fuel_type}")
+                print(f"Fuel type not found: {fuel_type}")
             return False
         except Exception as e:
-            print(f"❌ Error updating fuel price: {e}")
+            print(f"Error updating fuel price: {e}")
             self.session.rollback()
             return False
     
-       def get_exchange_rate(self):
+    def get_exchange_rate(self):
         try:
             rate = self.session.query(ExchangeRate).first()
             if not rate:
                 rate = ExchangeRate(usd_to_syp=15000.0)
                 self.session.add(rate)
                 self.session.commit()
-                print("✅ Default exchange rate created: 15000")
+                print("Default exchange rate created: 15000")
             return rate
         except Exception as e:
-            print(f"❌ Error getting exchange rate: {e}")
+            print(f"Error getting exchange rate: {e}")
             self.session.rollback()
-            # ✅ إرجاع كائن مؤقت بدلاً من None
             return ExchangeRate(usd_to_syp=15000.0)
     
     def update_exchange_rate(self, rate):
@@ -225,11 +222,11 @@ class Database:
                 ex.usd_to_syp = rate
                 ex.updated_at = datetime.utcnow()
                 self.session.commit()
-                print(f"✅ Exchange rate updated to {rate}")
+                print(f"Exchange rate updated to {rate}")
                 return True
             return False
         except Exception as e:
-            print(f"❌ Error updating exchange rate: {e}")
+            print(f"Error updating exchange rate: {e}")
             self.session.rollback()
             return False
     
@@ -244,25 +241,25 @@ class Database:
             )
             self.session.add(complaint)
             self.session.commit()
-            print(f"✅ Complaint added with ID: {complaint.id}")
+            print(f"Complaint added with ID: {complaint.id}")
             return complaint
         except Exception as e:
             self.session.rollback()
-            print(f"❌ Add complaint error: {e}")
+            print(f"Add complaint error: {e}")
             raise e
     
     def get_all_complaints(self):
         try:
             return self.session.query(Complaint).order_by(Complaint.created_at.desc()).all()
         except Exception as e:
-            print(f"❌ Error getting complaints: {e}")
+            print(f"Error getting complaints: {e}")
             return []
     
     def get_complaint(self, complaint_id):
         try:
             return self.session.query(Complaint).filter_by(id=complaint_id).first()
         except Exception as e:
-            print(f"❌ Error getting complaint: {e}")
+            print(f"Error getting complaint: {e}")
             return None
     
     def update_complaint_status(self, complaint_id, status, admin_notes=None):
@@ -273,10 +270,10 @@ class Database:
                 if admin_notes:
                     complaint.admin_notes = admin_notes
                 self.session.commit()
-                print(f"✅ Complaint {complaint_id} status updated to {status}")
+                print(f"Complaint {complaint_id} status updated to {status}")
                 return True
             return False
         except Exception as e:
             self.session.rollback()
-            print(f"❌ Update status error: {e}")
+            print(f"Update status error: {e}")
             raise e
