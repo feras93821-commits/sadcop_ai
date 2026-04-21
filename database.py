@@ -203,17 +203,20 @@ class Database:
             self.session.rollback()
             return False
     
-    def get_exchange_rate(self):
+       def get_exchange_rate(self):
         try:
             rate = self.session.query(ExchangeRate).first()
             if not rate:
                 rate = ExchangeRate(usd_to_syp=15000.0)
                 self.session.add(rate)
                 self.session.commit()
+                print("✅ Default exchange rate created: 15000")
             return rate
         except Exception as e:
             print(f"❌ Error getting exchange rate: {e}")
-            return None
+            self.session.rollback()
+            # ✅ إرجاع كائن مؤقت بدلاً من None
+            return ExchangeRate(usd_to_syp=15000.0)
     
     def update_exchange_rate(self, rate):
         try:
