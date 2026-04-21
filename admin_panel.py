@@ -1,110 +1,66 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 from config import Config
 
 class AdminPanel:
-    def __init__(self, database):
-        self.db = database
-    
+    def __init__(self, db):
+        self.db = db
+
     def is_admin(self, user_id):
         return user_id == Config.ADMIN_ID
-    
+
     async def show_admin_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """عرض قائمة الأدمن الرئيسية"""
         if not self.is_admin(update.effective_user.id):
-            await update.message.reply_text("⛔ ليس لديك صلاحية الوصول!")
             return
-        
-        keyboard = [
-            [InlineKeyboardButton("💰 تعديل الأسعار", callback_data='admin_prices')],
-            [InlineKeyboardButton("💱 تعديل سعر الصرف", callback_data='admin_exchange')],
-            [InlineKeyboardButton("📋 عرض الشكاوى", callback_data='admin_complaints')],
-            [InlineKeyboardButton("📊 إحصائيات", callback_data='admin_stats')],
-            [InlineKeyboardButton("❌ إغلاق", callback_data='close_menu')]
+        kb = [
+            [InlineKeyboardButton('💰 الأسعار', callback_data='prices')],
+            [InlineKeyboardButton('💱 الصرف', callback_data='exchange')],
+            [InlineKeyboardButton('📋 الشكاوى', callback_data='complaints')],
+            [InlineKeyboardButton('📊 الإحصائيات', callback_data='stats')],
+            [InlineKeyboardButton('❌ إغلاق', callback_data='close')],
         ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        admin_text = """🔧 *لوحة تحكم الأدمن*
+        text = 'لوحة تحكم الأدمن'
+        if getattr(update, 'callback_query', None):
+            await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb))
+        else:
+            await update.effective_chat.send_message(text, reply_markup=InlineKeyboardMarkup(kb))
 
-اختر الإجراء المطلوب:"""
-
-        try:
-            if update.callback_query:
-                await update.callback_query.edit_message_text(
-                    admin_text,
-                    reply_markup=reply_markup,
-                    parse_mode='Markdown'
-                )
-            else:
-                await update.message.reply_text(
-                    admin_text,
-                    reply_markup=reply_markup,
-                    parse_mode='Markdown'
-                )
-        except Exception as e:
-            print(f"show_admin_menu error: {e}")
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=admin_text,
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
-
-    async def show_complaints(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """عرض كافة الشكاوى في قاعدة البيانات"""
+    async def route_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        q = update.callback_query
+        await q.answer()
         if not self.is_admin(update.effective_user.id):
             return
+        data = q.data
+        if data == 'prices':
+            await self.show_prices(q)
+        elif data == 'exchange':
+            rate = self.db.get_exchange_rate()
+            await q.edit_message_text(f'سعر الصرف الحالي: {rate.usd_to_syp}')
+        elif data == 'complaints':
+            await self.show_complaints(q)
+        elif data == 'stats':
+            await self.show_stats(q)
+        elif data == 'close':
+            await q.delete_message()
 
-        try:
-            complaints = self.db.get_all_complaints()
-            if not complaints:
-                await update.callback_query.edit_message_text(
-                    "📭 لا يوجد شكاوى حالياً.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data='admin_menu')]])
-                )
-                return
+    async def show_prices(self, q):
+        prices = self.db.get_all_prices()
+        text = 'الأسعار الحالية:\n\n'
+        for p in prices:
+            text += f"{p.fuel_type}: {p.price_syp:,.0f} ل.س\n"
+        await q.edit_message_text(text)
 
-            await update.callback_query.answer()
-            
-            for c in complaints:
-                status = "🔴 معلقة" if c.status == 'pending' else "🟢 تم الحل" if c.status == 'resolved' else "🔵 قيد المراجعة"
-                
-                keyboard = [
-                    [
-                        InlineKeyboardButton("🟢 تم الحل", callback_data=f'comp_status_{c.id}_resolved'),
-                        InlineKeyboardButton("🔵 مراجعة", callback_data=f'comp_status_{c.id}_reviewed'),
-                        InlineKeyboardButton("🟡 انتظار", callback_data=f'comp_status_{c.id}_pending')
-                    ]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                msg = f"""🆔 *شكوى #{c.id}*
+    async def show_complaints(self, q):
+        rows = self.db.get_all_complaints()[:10]
+        if not rows:
+            await q.edit_message_text('لا توجد شكاوى.')
+            return
+        text='آخر الشكاوى:\n\n'
+        for r in rows:
+            text += f"#{r.id} | {r.full_name or 'بدون اسم'} | {r.status}\n{r.complaint_text[:80]}\n\n"
+        await q.edit_message_text(text)
 
-👤 *الاسم:* {c.full_name or 'غير معروف'}
-📱 *الهاتف:* {c.phone or 'غير متوفر'}
-📅 *التاريخ:* {c.created_at.strftime('%Y-%m-%d %H:%M')}
-📊 *الحالة:* {status}
-📝 *النص:* {c.complaint_text}"""
-                
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=msg,
-                    reply_markup=reply_markup,
-                    parse_mode='Markdown'
-                )
-
-            # Send back button separately
-            keyboard = [[InlineKeyboardButton("🔙 رجوع للقائمة", callback_data='admin_menu')]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="👆 انقر على زر لتحديث حالة أي شكوى",
-                reply_markup=reply_markup
-            )
-
-        except Exception as e:
-            print(f"show_complaints error: {e}")
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="❌ حدث خطأ أثناء جلب الشكاوى."
-            )
+    async def show_stats(self, q):
+        prices = len(self.db.get_all_prices())
+        complaints = len(self.db.get_all_complaints())
+        await q.edit_message_text(f'أنواع الوقود: {prices}\nإجمالي الشكاوى: {complaints}')
