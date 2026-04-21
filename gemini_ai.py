@@ -47,11 +47,14 @@ class GeminiAI:
     async def generate_price_response(self, fuel_type, price, exchange_rate):
         """توليد رد طبيعي عن السعر المحدد"""
         try:
+            # ✅ التحقق من exchange_rate
+            ex_rate_text = f"{exchange_rate.usd_to_syp}" if exchange_rate else "غير متوفر"
+            
             prompt = f"""أخبر المستخدم عن سعر {fuel_type}:
 - السعر بالدولار: {price.price_usd} $
 - السعر بالليرة السورية (القديمة): {price.price_syp:,.0f} ل.س
 - السعر بالليرة السورية (الجديدة): {price.price_syp_new:,.0f} ل.س
-- سعر الصرف: {exchange_rate.usd_to_syp}
+- سعر الصرف: {ex_rate_text}
 
 رد طبيعي ودي بالعربية (جملة أو جملتين):"""
             
@@ -67,6 +70,9 @@ class GeminiAI:
     async def generate_general_prices_response(self, prices, exchange_rate):
         """توليد رد عن جميع الأسعار عند السؤال العام"""
         try:
+            # ✅ التحقق من exchange_rate واستخدام قيمة افتراضية إذا كان None
+            ex_rate_value = exchange_rate.usd_to_syp if exchange_rate else 15000
+            
             prices_list = "\n".join([
                 f"- {p.fuel_type}: {p.price_syp:,.0f} ل.س (قديم) / {p.price_syp_new:,.0f} ل.س (جديد) / {p.price_usd} $" 
                 for p in prices
@@ -76,7 +82,7 @@ class GeminiAI:
 الأسعار الحالية:
 {prices_list}
 
-سعر الصرف: 1 دولار = {exchange_rate.usd_to_syp} ليرة سورية (القديمة)
+سعر الصرف: 1 دولار = {ex_rate_value} ليرة سورية (القديمة)
 
 ملاحظة: الأسعار بالليرة الجديدة تم حذف صفرين عنها.
 
@@ -86,6 +92,8 @@ class GeminiAI:
             return response.text.strip()
         except Exception as e:
             print(f"General prices error: {e}")
+            # ✅ استخدام القيمة الافتراضية إذا كان exchange_rate None
+            ex_rate_value = exchange_rate.usd_to_syp if exchange_rate else 15000
             prices_text = "\n".join([
                 f"• {p.fuel_type}: {p.price_syp:,.0f} ل.س (قديم) / {p.price_syp_new:,.0f} ل.س (جديد) / {p.price_usd} $" 
                 for p in prices
@@ -93,7 +101,7 @@ class GeminiAI:
             return f"""💰 *الأسعار الحالية:*
 {prices_text}
 
-💱 سعر الصرف: 1 دولار = {exchange_rate.usd_to_syp} ليرة سورية (القديمة)
+💱 سعر الصرف: 1 دولار = {ex_rate_value} ليرة سورية (القديمة)
 📌 ملاحظة: الأسعار بالليرة الجديدة تم حذف صفرين عنها"""
     
     async def generate_complaint_confirmation(self, complaint_text, phone):
