@@ -8,32 +8,6 @@ from config import Config
 from database import Database
 from gemini_ai import GeminiAI
 from admin_panel import AdminPanel
-# ================== الاستجابة العامة (الخيار الأخير) ==================
-    try:
-        print(f"📝 User message: {text}")
-        print(f"🤖 Calling AI...")
-        prices = db.get_all_prices()
-        response = await ai.get_response(text, prices)
-        
-        # ✅ التحقق من أن الرد ليس فارغاً أو عاماً جداً
-        if not response or len(response.strip()) < 10:
-            raise ValueError("AI returned empty or too short response")
-            
-        print(f"✅ AI Response: {response[:50]}...")
-        await update.message.reply_text(response)
-    except Exception as e:
-        logger.error(f"AI Error: {e}")
-        print(f"❌ Error: {e}")
-        # ✅ رد أفضل عند فشل الذكاء الاصطناعي
-        await update.message.reply_text(
-            "مرحباً! 👋\n\n"
-            "يمكنني مساعدتك في:\n"
-            "• 💰 معرفة أسعار المحروقات (بنزين، مازوت، غاز...)\n"
-            "• 📝 تقديم شكوى أو اقتراح\n"
-            "• ❓ الرد على استفساراتك العامة\n\n"
-            "جرب أن تسألني مثلاً: *كم سعر البنزين؟* أو *أريد تقديم شكوى*",
-            parse_mode='Markdown'
-        )
 
 # ✅ تقليل رسائل httpx
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -261,18 +235,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"🤖 Calling AI...")
         prices = db.get_all_prices()
         response = await ai.get_response(text, prices)
+        
+        # ✅ التحقق من أن الرد ليس فارغاً أو عاماً جداً
+        if not response or len(response.strip()) < 10:
+            raise ValueError("AI returned empty or too short response")
+            
         print(f"✅ AI Response: {response[:50]}...")
         await update.message.reply_text(response)
     except Exception as e:
         logger.error(f"AI Error: {e}")
         print(f"❌ Error: {e}")
+        # ✅ رد أفضل عند فشل الذكاء الاصطناعي
         await update.message.reply_text(
             "مرحباً! 👋\n\n"
             "يمكنني مساعدتك في:\n"
             "• 💰 معرفة أسعار المحروقات (بنزين، مازوت، غاز...)\n"
             "• 📝 تقديم شكوى أو اقتراح\n"
             "• ❓ الرد على استفساراتك العامة\n\n"
-            "كيف يمكنني مساعدتك؟"
+            "جرب أن تسألني مثلاً: *كم سعر البنزين؟* أو *أريد تقديم شكوى*",
+            parse_mode='Markdown'
         )
 
 # ==================== معالجات الأدمن ====================
