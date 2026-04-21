@@ -5,9 +5,9 @@ class GeminiAI:
     def __init__(self):
         genai.configure(api_key=Config.GEMINI_API_KEY)
         self.model = genai.GenerativeModel('gemini-1.5-flash')
-        
+
         self.system_context = """انت مساعد ذكي ودي للشركة السورية للبترول - محروقات اللاذقية.
-        
+
 قواعد الرد:
 - رد بشكل ودي ومفيد وقصير (1-3 جمل)
 - اذا سأل عن موضوع خارج الشركة، رد بأدب انك تخصصك المحروقات والخدمات المتعلقة بها
@@ -15,40 +15,47 @@ class GeminiAI:
 - لا تستخدم JSON في الردود العادية
 - استخدم الايموجي بشكل مناسب
 - اذا سأل عن اسعار محددة، استخدم البيانات المقدمة فقط
-- عند عرض الاسعار: العملة الجديدة = العملة القديمة / 100 (حذف صفرين)"""
+- عند عرض الاسعار: السعر الجديد = السعر القديم / 100 (حذف صفرين تلقائيا)"""
 
     async def get_response(self, user_message, db_prices=None):
         """الحصول على رد عادي من الذكاء الاصطناعي"""
         try:
             context = self.system_context
-            
+
             if db_prices:
-                prices_text = "\n\nالاسعار الحالية المتاحة:\n"
+                prices_text = "
+
+الاسعار الحالية المتاحة:
+"
                 for price in db_prices:
-                    prices_text += f"- {price.fuel_type}:\n"
-                    prices_text += f"  القديم: {price.price_syp:,.0f} ل.س\n"
-                    prices_text += f"  الجديد: {price.price_syp_new:,.2f} ل.س\n"
-                    prices_text += f"  دولار: {price.price_usd} $\n"
+                    prices_text += f"- {price.fuel_type}:
+"
+                    prices_text += f"  القديم: {price.price_syp:,.0f} ل.س
+"
+                    prices_text += f"  الجديد: {price.price_syp_new:,.2f} ل.س
+"
+                    prices_text += f"  دولار: {price.price_usd} $
+"
                 context += prices_text
-            
+
             prompt = f"""{context}
 
 المستخدم: "{user_message}"
 
-قدم رداً طبيعياً وودياً بالعربية (فقرة قصيرة):"""
-            
+قدم ردا طبيعيا ووديا بالعربية (فقرة قصيرة):"""
+
             response = self.model.generate_content(prompt)
             return response.text.strip()
-            
+
         except Exception as e:
-            print(f"AI Response error: {e}")
+            print("AI Response error: " + str(e))
             return "عذراً، حدث خطأ في معالجة طلبك. يمكنك سؤالي عن اسعار المحروقات او تقديم شكوى."
-    
+
     async def generate_price_response(self, fuel_type, price, exchange_rate):
         """توليد رد طبيعي عن السعر المحدد"""
         try:
             ex_rate_text = f"{exchange_rate.usd_to_syp}" if exchange_rate else "غير متوفر"
-            
+
             prompt = f"""اخبر المستخدم عن سعر {fuel_type}:
 - السعر بالدولار: {price.price_usd} $
 - السعر بالليرة السورية (القديمة): {price.price_syp:,.0f} ل.س
@@ -56,26 +63,27 @@ class GeminiAI:
 - سعر الصرف: {ex_rate_text}
 
 رد طبيعي ودي بالعربية (جملة او جملتين):"""
-            
+
             response = self.model.generate_content(prompt)
             return response.text.strip()
         except Exception as e:
-            print(f"Price response error: {e}")
+            print("Price response error: " + str(e))
             return f"""سعر {fuel_type} حالياً:
 💵 {price.price_usd} دولار
 🇸🇾 {price.price_syp:,.0f} ل.س (قديم)
 🇸🇾 {price.price_syp_new:,.2f} ل.س (جديد)"""
-    
+
     async def generate_general_prices_response(self, prices, exchange_rate):
         """توليد رد عن جميع الاسعار عند السؤال العام"""
         try:
             ex_rate_value = exchange_rate.usd_to_syp if exchange_rate else 15000
-            
-            prices_list = "\n".join([
+
+            prices_list = "
+".join([
                 f"- {p.fuel_type}: {p.price_syp:,.0f} ل.س (قديم) / {p.price_syp_new:,.2f} ل.س (جديد) / {p.price_usd} $" 
                 for p in prices
             ])
-            
+
             prompt = f"""المستخدم يسأل عن اسعار المحروقات بشكل عام.
 الاسعار الحالية:
 {prices_list}
@@ -83,13 +91,14 @@ class GeminiAI:
 سعر الصرف: 1 دولار = {ex_rate_value} ليرة سورية (القديمة)
 
 قدم جواباً ودياً يوضح جميع الاسعار المتاحة (فقرة قصيرة بالعربية):"""
-            
+
             response = self.model.generate_content(prompt)
             return response.text.strip()
         except Exception as e:
-            print(f"General prices error: {e}")
+            print("General prices error: " + str(e))
             ex_rate_value = exchange_rate.usd_to_syp if exchange_rate else 15000
-            prices_text = "\n".join([
+            prices_text = "
+".join([
                 f"• {p.fuel_type}: {p.price_syp:,.0f} ل.س (قديم) / {p.price_syp_new:,.2f} ل.س (جديد) / {p.price_usd} $" 
                 for p in prices
             ])
@@ -97,7 +106,7 @@ class GeminiAI:
 {prices_text}
 
 سعر الصرف: 1 دولار = {ex_rate_value} ليرة سورية"""
-    
+
     async def generate_complaint_confirmation(self, complaint_text, phone):
         """توليد رسالة تأكيد للشكوى"""
         try:
@@ -106,9 +115,13 @@ class GeminiAI:
 رقم الهاتف: {phone}
 
 رسالة قصيرة بالعربية شكر العميل على الشكوى:"""
-            
+
             response = self.model.generate_content(prompt)
             return response.text.strip()
         except Exception as e:
-            print(f"Complaint confirmation error: {e}")
-            return f"تم استلام شكواك بنجاح!\n\nسيتم مراجعتها والتواصل معك على الرقم: {phone}\n\nشكراً لتواصلك معنا"
+            print("Complaint confirmation error: " + str(e))
+            return f"تم استلام شكواك بنجاح!
+
+سيتم مراجعتها والتواصل معك على الرقم: {phone}
+
+شكراً لتواصلك معنا"
