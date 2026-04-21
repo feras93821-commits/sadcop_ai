@@ -1,10 +1,27 @@
+import os
 import google.generativeai as genai
 from config import Config
 
 class GeminiAI:
     def __init__(self):
-        genai.configure(api_key=Config.GEMINI_API_KEY)
-        self.model = genai.GenerativeModel('gemini-1.5-flash')
+        # Initialize Google Gemini
+        try:
+            genai.configure(api_key=Config.GEMINI_API_KEY)
+            self.gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+            self.gemini_available = True
+            print("Google Gemini initialized successfully")
+        except Exception as e:
+            print("Google Gemini init failed: " + str(e))
+            self.gemini_available = False
+            self.gemini_model = None
+
+        # Initialize Grok AI (xAI)
+        self.grok_api_key = os.getenv("GROK_API_KEY", "")
+        self.grok_available = bool(self.grok_api_key)
+        if self.grok_available:
+            print("Grok AI initialized successfully")
+        else:
+            print("Grok AI not configured (no GROK_API_KEY)")
 
         self.system_context = """أنت مساعد ذكي ودي للشركة السورية للبترول - محروقات اللاذقية.
 
@@ -15,6 +32,69 @@ class GeminiAI:
 - لا تستخدم JSON في الردود العادية
 - استخدم الإيموجي بشكل مناسب
 - إذا سأل عن أسعار محددة، استخدم البيانات المقدمة فقط"""
+
+    def _call_grok(self, prompt):
+        """Call Grok AI API as fallback"""
+        try:
+            import requests
+            import json
+
+            headers = {
+                "Authorization": f"Bearer {self.grok_api_key}",
+                "Content-Type": "application/json"
+            }
+
+            payload = {
+                "model": "grok-2-latest",
+                "messages": [
+                    {"role": "system", "content": self.system_context},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.7,
+                "max_tokens": 500
+            }
+
+            response = requests.post(
+                "https://api.x.ai/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                return data["choices"][0]["message"]["content"].strip()
+            else:
+                print(f"Grok API error: {response.status_code} - {response.text}")
+                return None
+
+        except Exception as e:
+            print(f"Grok call error: {e}")
+            return None
+
+    async def _generate_with_fallback(self, prompt):
+        """Generate response using Gemini first, fallback to Grok"""
+
+        # Try Google Gemini first
+        if self.gemini_available:
+            try:
+                response = self.gemini_model.generate_content(prompt)
+                if response and response.text:
+                    print("Response from: Google Gemini")
+                    return response.text.strip()
+            except Exception as e:
+                print(f"Gemini failed: {e}")
+
+        # Fallback to Grok AI
+        if self.grok_available:
+            print("Falling back to Grok AI...")
+            grok_response = self._call_grok(prompt)
+            if grok_response:
+                print("Response from: Grok AI")
+                return grok_response
+
+        # Both failed
+        return None
 
     async def get_response(self, user_message, db_prices=None):
         """الحصول على رد عادي من الذكاء الاصطناعي"""
@@ -43,8 +123,12 @@ class GeminiAI:
 
 قدم رداً طبيعياً وودياً بالعربية (فقرة قصيرة):"""
 
-            response = self.model.generate_content(prompt)
-            return response.text.strip()
+            response = await self._generate_with_fallback(prompt)
+
+            if response:
+                return response
+            else:
+                raise Exception("Both AI models failed")
 
         except Exception as e:
             print("AI Response error: " + str(e))
@@ -63,8 +147,13 @@ class GeminiAI:
 
 رد طبيعي ودي بالعربية (جملة أو جملتين):"""
 
-            response = self.model.generate_content(prompt)
-            return response.text.strip()
+            response = await self._generate_with_fallback(prompt)
+
+            if response:
+                return response
+            else:
+                raise Exception("Both AI models failed")
+
         except Exception as e:
             print("Price response error: " + str(e))
             return f"""سعر {fuel_type} حالياً:
@@ -91,8 +180,13 @@ class GeminiAI:
 
 قدم جواباً ودياً يوضح جميع الأسعار المتاحة (فقرة قصيرة بالعربية):"""
 
-            response = self.model.generate_content(prompt)
-            return response.text.strip()
+            response = await self._generate_with_fallback(prompt)
+
+            if response:
+                return response
+            else:
+                raise Exception("Both AI models failed")
+
         except Exception as e:
             print("General prices error: " + str(e))
             ex_rate_value = exchange_rate.usd_to_syp if exchange_rate else 15000
@@ -115,8 +209,13 @@ class GeminiAI:
 
 رسالة قصيرة بالعربية شكر العميل على الشكوى:"""
 
-            response = self.model.generate_content(prompt)
-            return response.text.strip()
+            response = await self._generate_with_fallback(prompt)
+
+            if response:
+                return response
+            else:
+                raise Exception("Both AI models failed")
+
         except Exception as e:
             print("Complaint confirmation error: " + str(e))
             return f"تم استلام شكواك بنجاح!
