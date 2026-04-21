@@ -4,117 +4,44 @@ from config import Config
 class GeminiAI:
     def __init__(self):
         genai.configure(api_key=Config.GEMINI_API_KEY)
-        # ✅ استخدام النموذج الحديث
         self.model = genai.GenerativeModel('gemini-1.5-flash')
-        
-        self.system_context = """أنت مساعد ذكي ودي للشركة السورية للبترول - محروقات اللاذقية.
-        
-قواعد الرد:
-- رد بشكل ودي ومفيد وقصير (1-3 جمل)
-- إذا سأل عن موضوع خارج الشركة، رد بأدب أنك تخصصك المحروقات والخدمات المتعلقة بها
-- يمكنك التحادث بشكل عام لكن ارجع للموضوع بذكاء
-- لا تستخدم JSON في الردود العادية
-- استخدم الإيموجي بشكل مناسب
-- إذا سأل عن أسعار محددة، استخدم البيانات المقدمة فقط"""
+        self.base_context = '''أنت مساعد ذكي للشركة السورية للبترول - محروقات اللاذقية.
+قواعد العمل:
+- تحدث بالعربية الطبيعية.
+- كن مختصراً ومفيداً.
+- إذا سأل المستخدم عن الأسعار استخدم البيانات المرسلة فقط.
+- إذا كان السؤال خارج اختصاص الشركة أجب بلطف ثم وجّه للخدمات المتاحة.
+- افهم اللهجة السورية والعربية العامة.
+- لا تستخدم JSON.
+'''
 
-    async def get_response(self, user_message, db_prices=None):
-        """الحصول على رد عادي من الذكاء الاصطناعي"""
+    async def ask(self, prompt):
         try:
-            context = self.system_context
-            
-            if db_prices:
-                prices_text = "\n\nالأسعار الحالية المتاحة:\n"
-                for price in db_prices:
-                    prices_text += f"- {price.fuel_type}:\n"
-                    prices_text += f"  🇸🇾 قديم: {price.price_syp:,.0f} ل.س\n"
-                    prices_text += f"  🇸🇾 جديد: {price.price_syp_new:,.0f} ل.س\n"
-                    prices_text += f"  💵 دولار: {price.price_usd} $\n"
-                context += prices_text
-            
-            prompt = f"""{context}
+            r = self.model.generate_content(prompt)
+            txt = getattr(r, 'text', '') or ''
+            return txt.strip() if txt.strip() else 'يمكنني مساعدتك في الأسعار والشكاوى والاستفسارات العامة.'
+        except Exception:
+            return 'تعذر الاتصال بالخدمة الذكية حالياً، حاول بعد قليل.'
 
-المستخدم: "{user_message}"
+    async def get_response(self, user_message, prices=None):
+        prices_text = self._prices_text(prices)
+        prompt = f"{self.base_context}\n{prices_text}\nالمستخدم: {user_message}\nالرد:" 
+        return await self.ask(prompt)
 
-قدم رداً طبيعياً وودياً بالعربية (فقرة قصيرة):"""
-            
-            response = self.model.generate_content(prompt)
-            return response.text.strip()
-            
-        except Exception as e:
-            print(f"AI Response error: {e}")
-            return "عذراً، حدث خطأ في معالجة طلبك. يمكنك سؤالي عن أسعار المحروقات أو تقديم شكوى."
-    
-    async def generate_price_response(self, fuel_type, price, exchange_rate):
-        """توليد رد طبيعي عن السعر المحدد"""
-        try:
-            # ✅ التحقق من exchange_rate
-            ex_rate_text = f"{exchange_rate.usd_to_syp}" if exchange_rate else "غير متوفر"
-            
-            prompt = f"""أخبر المستخدم عن سعر {fuel_type}:
-- السعر بالدولار: {price.price_usd} $
-- السعر بالليرة السورية (القديمة): {price.price_syp:,.0f} ل.س
-- السعر بالليرة السورية (الجديدة): {price.price_syp_new:,.0f} ل.س
-- سعر الصرف: {ex_rate_text}
-
-رد طبيعي ودي بالعربية (جملة أو جملتين):"""
-            
-            response = self.model.generate_content(prompt)
-            return response.text.strip()
-        except Exception as e:
-            print(f"Price response error: {e}")
-            return f"""⛽ سعر {fuel_type} حالياً:
-💵 {price.price_usd} دولار
-🇸🇾 {price.price_syp:,.0f} ل.س (قديم)
-🇸🇾 {price.price_syp_new:,.0f} ل.س (جديد)"""
-    
     async def generate_general_prices_response(self, prices, exchange_rate):
-        """توليد رد عن جميع الأسعار عند السؤال العام"""
-        try:
-            # ✅ التحقق من exchange_rate واستخدام قيمة افتراضية إذا كان None
-            ex_rate_value = exchange_rate.usd_to_syp if exchange_rate else 15000
-            
-            prices_list = "\n".join([
-                f"- {p.fuel_type}: {p.price_syp:,.0f} ل.س (قديم) / {p.price_syp_new:,.0f} ل.س (جديد) / {p.price_usd} $" 
-                for p in prices
-            ])
-            
-            prompt = f"""المستخدم يسأل عن أسعار المحروقات بشكل عام.
-الأسعار الحالية:
-{prices_list}
+        prices_text = self._prices_text(prices)
+        rate = getattr(exchange_rate, 'usd_to_syp', 0)
+        prompt = f"{self.base_context}\nهذه أسعار المحروقات الحالية:\n{prices_text}\nسعر الصرف: {rate}\nقدّم جواباً واضحاً ومنسقاً." 
+        return await self.ask(prompt)
 
-سعر الصرف: 1 دولار = {ex_rate_value} ليرة سورية (القديمة)
-
-ملاحظة: الأسعار بالليرة الجديدة تم حذف صفرين عنها.
-
-قدم جواباً ودياً يوضح جميع الأسعار المتاحة (فقرة قصيرة بالعربية):"""
-            
-            response = self.model.generate_content(prompt)
-            return response.text.strip()
-        except Exception as e:
-            print(f"General prices error: {e}")
-            # ✅ استخدام القيمة الافتراضية إذا كان exchange_rate None
-            ex_rate_value = exchange_rate.usd_to_syp if exchange_rate else 15000
-            prices_text = "\n".join([
-                f"• {p.fuel_type}: {p.price_syp:,.0f} ل.س (قديم) / {p.price_syp_new:,.0f} ل.س (جديد) / {p.price_usd} $" 
-                for p in prices
-            ])
-            return f"""💰 *الأسعار الحالية:*
-{prices_text}
-
-💱 سعر الصرف: 1 دولار = {ex_rate_value} ليرة سورية (القديمة)
-📌 ملاحظة: الأسعار بالليرة الجديدة تم حذف صفرين عنها"""
-    
     async def generate_complaint_confirmation(self, complaint_text, phone):
-        """توليد رسالة تأكيد للشكوى"""
-        try:
-            prompt = f"""أكد استلام الشكوى بشكل ودي.
-نص الشكوى: "{complaint_text}"
-رقم الهاتف: {phone}
+        prompt = f"أكد استلام شكوى المستخدم باحتراف. نص الشكوى: {complaint_text}. الهاتف: {phone}" 
+        return await self.ask(prompt)
 
-رسالة قصيرة بالعربية شكر العميل على الشكوى:"""
-            
-            response = self.model.generate_content(prompt)
-            return response.text.strip()
-        except Exception as e:
-            print(f"Complaint confirmation error: {e}")
-            return f"✅ تم استلام شكواك بنجاح! 📝\n\nسيتم مراجعتها والتواصل معك على الرقم: {phone}\n\nشكراً لتواصلك معنا 🙏"
+    def _prices_text(self, prices):
+        if not prices:
+            return 'لا توجد أسعار متاحة حالياً.'
+        lines = []
+        for p in prices:
+            lines.append(f"- {p.fuel_type}: {p.price_syp:,.0f} ل.س قديم / {p.price_syp_new:,.0f} جديد / {p.price_usd}$")
+        return '\n'.join(lines)
