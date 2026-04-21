@@ -4,23 +4,23 @@ from config import Config
 
 class GeminiAI:
     def __init__(self):
-        self.api_key = Config.GROQ_API_KEY
+        self.key = Config.GROQ_API_KEY
 
     async def get_response(self, text, prices=None):
         try:
             url = "https://api.groq.com/openai/v1/chat/completions"
 
             headers = {
-                "Authorization": f"Bearer {self.api_key}",
+                "Authorization": f"Bearer {self.key}",
                 "Content-Type": "application/json"
             }
 
-            data = {
+            payload = {
                 "model": "llama3-8b-8192",
                 "messages": [
                     {
                         "role": "system",
-                        "content": "أجب بالعربية بشكل واضح ومفيد."
+                        "content": "أجب بالعربية بشكل بسيط ومفيد."
                     },
                     {
                         "role": "user",
@@ -29,17 +29,17 @@ class GeminiAI:
                 ]
             }
 
-            response = requests.post(
-                url,
-                headers=headers,
-                json=data,
-                timeout=30
-            )
+            r = requests.post(url, headers=headers, json=payload, timeout=20)
 
-            result = response.json()
+            # 🔴 أهم سطر للتشخيص
+            print("AI STATUS:", r.status_code)
+            print("AI RESPONSE:", r.text)
 
-            return result["choices"][0]["message"]["content"]
+            data = r.json()
+
+            return data["choices"][0]["message"]["content"]
 
         except Exception as e:
-            print("AI ERROR:", repr(e))
-            return "الخدمة الذكية متوقفة مؤقتاً."
+            # 🔴 لا تخفي الخطأ أبداً الآن
+            print("REAL AI ERROR:", repr(e))
+            return f"AI ERROR: {str(e)}"
