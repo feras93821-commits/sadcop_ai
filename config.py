@@ -6,6 +6,7 @@ load_dotenv()
 class Config:
     BOT_TOKEN = os.getenv("BOT_TOKEN")
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+    GROK_API_KEY = os.getenv("GROK_API_KEY", "")
     ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///spc_bot.db")
 
@@ -17,8 +18,8 @@ class Config:
 
 أنا المساعد الذكي الخاص بكم، يمكنك التحدث معي بشكل طبيعي:
 
-- اسألني عن اسعار المحروقات (بنزين، مازوت، غاز...)
+- اسألني عن أسعار المحروقات (بنزين، مازوت، غاز...)
 - اطلب تقديم شكوى وسأساعدك في ذلك
-- اسألني اي استفسار عن الشركة والخدمات
+- اسألني أي استفسار عن الشركة والخدمات
 
 كيف يمكنني مساعدتك اليوم؟"""
