@@ -22,22 +22,13 @@ class GeminiAI:
         try:
             context = self.system_context
 
-            if db_prices:
-                prices_text = "
-
-الاسعار الحالية المتاحة:
-"
-                for price in db_prices:
-                    prices_text += f"- {price.fuel_type}:
-"
-                    prices_text += f"  القديم: {price.price_syp:,.0f} ل.س
-"
-                    prices_text += f"  الجديد: {price.price_syp_new:,.2f} ل.س
-"
-                    prices_text += f"  دولار: {price.price_usd} $
-"
-                context += prices_text
-
+        prices_text = "\n\nالأسعار الحالية المتاحة:\n"
+        for price in db_prices:
+                    prices_text += f"- {price.fuel_type}:\n"
+                    prices_text += f"  🇸🇾 قديم: {price.price_syp:,.0f} ل.س\n"
+                    prices_text += f"  🇸🇾 جديد: {price.price_syp_new:,.0f} ل.س\n"
+                    prices_text += f"  💵 دولار: {price.price_usd} $\n"
+                context += prices_text 
             prompt = f"""{context}
 
 المستخدم: "{user_message}"
