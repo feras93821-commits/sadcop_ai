@@ -1,316 +1,263 @@
-from sqlalchemy import (
-    create_engine,
-    Column,
-    Integer,
-    String,
-    Float,
-    DateTime,
-    Text,
-    BigInteger,
-    text
-)
-from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text, BigInteger, inspect
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 from datetime import datetime
+import os
 
 Base = declarative_base()
 
-
-# =========================
-# Models
-# =========================
-
 class FuelPrice(Base):
-    __tablename__ = "fuel_prices"
-
+    __tablename__ = 'fuel_prices'
     id = Column(Integer, primary_key=True)
     fuel_type = Column(String(50), unique=True, nullable=False)
-
-    price_usd = Column(Float, default=0)
-    price_syp = Column(Float, default=0)
-    price_syp_new = Column(Float, default=0)
-
+    price_usd = Column(Float, default=0.0)
+    price_syp = Column(Float, default=0.0)
+    price_syp_new = Column(Float, default=0.0)
     updated_at = Column(DateTime, default=datetime.utcnow)
-
 
 class ExchangeRate(Base):
-    __tablename__ = "exchange_rate"
-
+    __tablename__ = 'exchange_rate'
     id = Column(Integer, primary_key=True)
-    usd_to_syp = Column(Float, default=15000)
-
+    usd_to_syp = Column(Float, default=0.0)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
-
 class Complaint(Base):
-    __tablename__ = "complaints"
-
+    __tablename__ = 'complaints'
     id = Column(Integer, primary_key=True)
-    user_id = Column(BigInteger)
-
-    username = Column(String(120))
+    user_id = Column(BigInteger, nullable=False)
+    username = Column(String(100))
     full_name = Column(String(200))
     phone = Column(String(50))
-
-    complaint_text = Column(Text)
-    status = Column(String(30), default="pending")
-
+    complaint_text = Column(Text, nullable=False)
+    status = Column(String(20), default='pending')
     created_at = Column(DateTime, default=datetime.utcnow)
-
-
-# =========================
-# Database Manager
-# =========================
+    admin_notes = Column(Text)
 
 class Database:
-    def __init__(self, url):
-        self.engine = create_engine(
-            url,
-            pool_pre_ping=True,
-            pool_recycle=300
-        )
+    def __init__(self, db_url=None, reset_tables=False):
+        if db_url is None:
+            db_url = os.getenv("DATABASE_URL")
+            if not db_url:
+                print("ERROR: DATABASE_URL not set!")
+                raise ValueError("DATABASE_URL environment variable is required")
+            if db_url.startswith("postgres://"):
+                db_url = db_url.replace("postgres://", "postgresql://", 1)
+            if "postgresql://" in db_url and "psycopg2" not in db_url:
+                db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
 
-        self.Session = scoped_session(
-            sessionmaker(
-                bind=self.engine,
-                autoflush=False,
-                autocommit=False
+        print("Database URL: " + db_url[:50] + "...")
+
+        try:
+            self.engine = create_engine(
+                db_url,
+                echo=False,
+                pool_pre_ping=True,
+                pool_recycle=3600,
+                connect_args={"connect_timeout": 10}
             )
-        )
-
-        # إنشاء الجداول
-        Base.metadata.create_all(self.engine)
-
-        # ترقية الجداول القديمة
-        self.migrate()
-
-        # إدخال البيانات الأساسية
-        self.seed()
-
-    # =========================
-    # Session Helper
-    # =========================
-    def session(self):
-        return self.Session()
-
-    # =========================
-    # Migration
-    # =========================
-    def migrate(self):
-        with self.engine.connect() as conn:
-            try:
-                # PostgreSQL / Railway
-                conn.execute(text("""
-                    ALTER TABLE fuel_prices
-                    ADD COLUMN IF NOT EXISTS price_syp_new FLOAT DEFAULT 0
-                """))
-
-                conn.execute(text("""
-                    ALTER TABLE fuel_prices
-                    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP
-                """))
-
-                conn.execute(text("""
-                    ALTER TABLE exchange_rate
-                    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP
-                """))
-
-                conn.commit()
-                print("✅ Database migration completed")
-
-            except Exception as e:
-                print("⚠️ Migration skipped:", e)
-
-    # =========================
-    # Seed Default Data
-    # =========================
-    def seed(self):
-        s = self.session()
-
-        try:
-            if not s.query(ExchangeRate).first():
-                s.add(ExchangeRate())
-
-            fuels = [
-                "بنزين",
-                "مازوت",
-                "غاز منزلي",
-                "غاز صناعي"
-            ]
-
-            for fuel in fuels:
-                row = s.query(FuelPrice).filter_by(
-                    fuel_type=fuel
-                ).first()
-
-                if not row:
-                    s.add(FuelPrice(fuel_type=fuel))
-
-            s.commit()
-            print("✅ Seed completed")
-
+            with self.engine.connect() as conn:
+                print("Database connection successful!")
         except Exception as e:
-            s.rollback()
-            print("❌ Seed error:", e)
+            print("Database connection failed: " + str(e))
+            raise e
 
-        finally:
-            s.close()
+        if reset_tables:
+            self._reset_all_tables()
+        else:
+            self._fix_schema_if_needed()
 
-    # =========================
-    # Prices
-    # =========================
-    def get_all_prices(self):
-        s = self.session()
         try:
-            return s.query(FuelPrice).order_by(FuelPrice.id.asc()).all()
-        finally:
-            s.close()
+            Base.metadata.create_all(self.engine)
+            print("Tables created successfully!")
+        except Exception as e:
+            print("Error creating tables: " + str(e))
+            raise e
+
+        Session = sessionmaker(bind=self.engine)
+        self.session = Session()
+        self._init_defaults()
+
+    def _fix_schema_if_needed(self):
+        try:
+            inspector = inspect(self.engine)
+            if 'complaints' in inspector.get_table_names():
+                columns = inspector.get_columns('complaints')
+                user_id_col = next((c for c in columns if c['name'] == 'user_id'), None)
+                if user_id_col:
+                    col_type = str(user_id_col['type']).lower()
+                    if 'integer' in col_type and 'big' not in col_type:
+                        print("Fixing complaints table: Integer -> BigInteger")
+                        self._reset_complaints_table()
+        except Exception as e:
+            print("Schema check warning: " + str(e))
+
+    def _reset_complaints_table(self):
+        try:
+            old_data = []
+            try:
+                with self.engine.connect() as conn:
+                    result = conn.execute("SELECT * FROM complaints")
+                    old_data = [dict(row._mapping) for row in result]
+            except:
+                pass
+            Complaint.__table__.drop(self.engine, checkfirst=True)
+            Complaint.__table__.create(self.engine)
+            if old_data:
+                with self.engine.connect() as conn:
+                    for row in old_data:
+                        try:
+                            conn.execute(
+                                Complaint.__table__.insert(),
+                                {
+                                    'user_id': row.get('user_id'),
+                                    'username': row.get('username'),
+                                    'full_name': row.get('full_name'),
+                                    'phone': row.get('phone'),
+                                    'complaint_text': row.get('complaint_text'),
+                                    'status': row.get('status', 'pending'),
+                                    'created_at': row.get('created_at', datetime.utcnow()),
+                                    'admin_notes': row.get('admin_notes')
+                                }
+                            )
+                        except Exception as e:
+                            print("Skipping row: " + str(e))
+                    conn.commit()
+            print("Complaints table recreated with BigInteger")
+        except Exception as e:
+            print("Reset error: " + str(e))
+            Complaint.__table__.drop(self.engine, checkfirst=True)
+            Complaint.__table__.create(self.engine)
+
+    def _reset_all_tables(self):
+        print("Resetting all tables...")
+        Base.metadata.drop_all(self.engine)
+        Base.metadata.create_all(self.engine)
+        print("All tables recreated")
+
+    def _init_defaults(self):
+        try:
+            fuel_types = ['بنزين', 'مازوت', 'غاز منزلي', 'غاز صناعي']
+            for fuel in fuel_types:
+                if not self.session.query(FuelPrice).filter_by(fuel_type=fuel).first():
+                    self.session.add(FuelPrice(fuel_type=fuel, price_usd=0.0, price_syp=0.0, price_syp_new=0.0))
+            if not self.session.query(ExchangeRate).first():
+                self.session.add(ExchangeRate(usd_to_syp=15000.0))
+            self.session.commit()
+            print("Default data initialized")
+        except Exception as e:
+            print("Error initializing defaults: " + str(e))
+            self.session.rollback()
 
     def get_fuel_price(self, fuel_type):
-        s = self.session()
         try:
-            return s.query(FuelPrice).filter_by(
-                fuel_type=fuel_type
-            ).first()
-        finally:
-            s.close()
-
-    def update_fuel_price(self, fuel_type, price_syp):
-        s = self.session()
-
-        try:
-            row = s.query(FuelPrice).filter_by(
-                fuel_type=fuel_type
-            ).first()
-
-            if not row:
-                return False
-
-            rate = s.query(ExchangeRate).first()
-
-            exchange = rate.usd_to_syp if rate else 15000
-
-            row.price_syp = float(price_syp)
-            row.price_syp_new = round(float(price_syp) / 100, 2)
-            row.price_usd = round(float(price_syp) / exchange, 2)
-            row.updated_at = datetime.utcnow()
-
-            s.commit()
-            return True
-
+            return self.session.query(FuelPrice).filter_by(fuel_type=fuel_type).first()
         except Exception as e:
-            s.rollback()
-            print("❌ update_fuel_price:", e)
+            print("Error getting fuel price: " + str(e))
+            return None
+
+    def get_all_prices(self):
+        try:
+            return self.session.query(FuelPrice).all()
+        except Exception as e:
+            print("Error getting all prices: " + str(e))
+            return []
+
+    def update_fuel_price(self, fuel_type, price_usd=None, price_syp=None, price_syp_new=None):
+        try:
+            fuel = self.get_fuel_price(fuel_type)
+            if fuel:
+                if price_usd is not None:
+                    fuel.price_usd = price_usd
+                if price_syp is not None:
+                    fuel.price_syp = price_syp
+                    fuel.price_syp_new = round(float(price_syp) / 100.0, 2)
+                elif price_syp_new is not None:
+                    fuel.price_syp_new = price_syp_new
+                fuel.updated_at = datetime.utcnow()
+                self.session.commit()
+                print("Price updated for " + fuel_type + ": USD=" + str(fuel.price_usd) + ", SYP_OLD=" + str(fuel.price_syp) + ", SYP_NEW=" + str(fuel.price_syp_new))
+                return True
+            else:
+                print("Fuel type not found: " + fuel_type)
+            return False
+        except Exception as e:
+            print("Error updating fuel price: " + str(e))
+            self.session.rollback()
             return False
 
-        finally:
-            s.close()
-
-    # =========================
-    # Exchange Rate
-    # =========================
     def get_exchange_rate(self):
-        s = self.session()
         try:
-            row = s.query(ExchangeRate).first()
-
-            if not row:
-                row = ExchangeRate()
-                s.add(row)
-                s.commit()
-
-            return row
-
-        finally:
-            s.close()
-
-    def update_exchange_rate(self, value):
-        s = self.session()
-
-        try:
-            row = s.query(ExchangeRate).first()
-
-            if not row:
-                row = ExchangeRate()
-
-            row.usd_to_syp = float(value)
-            row.updated_at = datetime.utcnow()
-
-            s.add(row)
-            s.commit()
-            return True
-
+            rate = self.session.query(ExchangeRate).first()
+            if not rate:
+                rate = ExchangeRate(usd_to_syp=15000.0)
+                self.session.add(rate)
+                self.session.commit()
+                print("Default exchange rate created: 15000")
+            return rate
         except Exception as e:
-            s.rollback()
-            print("❌ update_exchange_rate:", e)
+            print("Error getting exchange rate: " + str(e))
+            self.session.rollback()
+            return ExchangeRate(usd_to_syp=15000.0)
+
+    def update_exchange_rate(self, rate):
+        try:
+            ex = self.get_exchange_rate()
+            if ex:
+                ex.usd_to_syp = rate
+                ex.updated_at = datetime.utcnow()
+                self.session.commit()
+                print("Exchange rate updated to " + str(rate))
+                return True
+            return False
+        except Exception as e:
+            print("Error updating exchange rate: " + str(e))
+            self.session.rollback()
             return False
 
-        finally:
-            s.close()
-
-    # =========================
-    # Complaints
-    # =========================
-    def add_complaint(
-        self,
-        user_id,
-        username,
-        full_name,
-        phone,
-        complaint_text
-    ):
-        s = self.session()
-
+    def add_complaint(self, user_id, username, full_name, phone, complaint_text):
         try:
-            row = Complaint(
-                user_id=user_id,
+            complaint = Complaint(
+                user_id=int(user_id),
                 username=username,
                 full_name=full_name,
                 phone=phone,
                 complaint_text=complaint_text
             )
-
-            s.add(row)
-            s.commit()
-            s.refresh(row)
-
-            return row
-
+            self.session.add(complaint)
+            self.session.commit()
+            print("Complaint added with ID: " + str(complaint.id))
+            return complaint
         except Exception as e:
-            s.rollback()
-            print("❌ add_complaint:", e)
+            self.session.rollback()
+            print("Add complaint error: " + str(e))
             raise e
 
-        finally:
-            s.close()
-
     def get_all_complaints(self):
-        s = self.session()
         try:
-            return s.query(Complaint).order_by(
-                Complaint.created_at.desc()
-            ).all()
-        finally:
-            s.close()
-
-    def update_complaint_status(self, complaint_id, status):
-        s = self.session()
-
-        try:
-            row = s.query(Complaint).filter_by(
-                id=complaint_id
-            ).first()
-
-            if not row:
-                return False
-
-            row.status = status
-            s.commit()
-            return True
-
+            return self.session.query(Complaint).order_by(Complaint.created_at.desc()).all()
         except Exception as e:
-            s.rollback()
-            print("❌ update_complaint_status:", e)
-            return False
+            print("Error getting complaints: " + str(e))
+            return []
 
-        finally:
-            s.close()
+    def get_complaint(self, complaint_id):
+        try:
+            return self.session.query(Complaint).filter_by(id=complaint_id).first()
+        except Exception as e:
+            print("Error getting complaint: " + str(e))
+            return None
+
+    def update_complaint_status(self, complaint_id, status, admin_notes=None):
+        try:
+            complaint = self.get_complaint(complaint_id)
+            if complaint:
+                complaint.status = status
+                if admin_notes:
+                    complaint.admin_notes = admin_notes
+                self.session.commit()
+                print("Complaint " + str(complaint_id) + " status updated to " + status)
+                return True
+            return False
+        except Exception as e:
+            self.session.rollback()
+            print("Update status error: " + str(e))
+            raise e
