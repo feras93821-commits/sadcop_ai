@@ -9,8 +9,7 @@ class AdminPanel:
     def is_admin(self, user_id):
         return user_id == Config.ADMIN_ID
 
-    async def show_admin_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """عرض قائمة الأدمن الرئيسية"""
+    async def show_admin_menu(self, update, context):
         if not self.is_admin(update.effective_user.id):
             if update.message:
                 await update.message.reply_text("ليس لديك صلاحية الوصول!")
@@ -49,8 +48,7 @@ class AdminPanel:
                 parse_mode='Markdown'
             )
 
-    async def show_prices_editor(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """عرض قائمة تعديل الأسعار"""
+    async def show_prices_editor(self, update, context):
         query = update.callback_query if update else None
 
         if query:
@@ -75,7 +73,7 @@ class AdminPanel:
                     await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=reply_markup, parse_mode='Markdown')
                 return
 
-            text_lines = ["تعديل أسعار المحروقات:\n"]
+            text_lines = ["تعديل أسعار المحروقات:"]
             keyboard = []
 
             for price in prices:
@@ -114,8 +112,7 @@ class AdminPanel:
                 text="حدث خطأ أثناء تحميل قائمة الأسعار."
             )
 
-    async def handle_price_edit(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """معالجة اختيار تعديل سعر"""
+    async def handle_price_edit(self, update, context):
         query = update.callback_query if update else None
 
         if query:
@@ -160,8 +157,7 @@ class AdminPanel:
             print("handle_price_edit error: %s" % str(e))
             await context.bot.send_message(chat_id=Config.ADMIN_ID, text="حدث خطأ أثناء بدء تعديل السعر.")
 
-    async def show_complaints(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """عرض قائمة الشكاوى للأدمن"""
+    async def show_complaints(self, update, context):
         query = update.callback_query if update else None
 
         if query:

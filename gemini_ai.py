@@ -1,10 +1,10 @@
 import os
+import asyncio
 import google.generativeai as genai
 from config import Config
 
 class GeminiAI:
     def __init__(self):
-        # Initialize Google Gemini
         try:
             genai.configure(api_key=Config.GEMINI_API_KEY)
             self.gemini_model = genai.GenerativeModel('gemini-1.5-flash')
@@ -15,7 +15,6 @@ class GeminiAI:
             self.gemini_available = False
             self.gemini_model = None
 
-        # Initialize Grok AI (xAI)
         self.grok_api_key = os.getenv("GROK_API_KEY", "")
         self.grok_available = bool(self.grok_api_key)
         if self.grok_available:
@@ -33,11 +32,21 @@ class GeminiAI:
 - استخدم الايموجي بشكل مناسب
 - اذا سأل عن اسعار محددة، استخدم البيانات المقدمة فقط"""
 
-    def _call_grok(self, prompt):
-        """Call Grok AI API as fallback"""
+    def _call_gemini_sync(self, prompt):
+        """Synchronous call to Gemini"""
+        try:
+            response = self.gemini_model.generate_content(prompt)
+            if response and response.text:
+                return response.text.strip()
+            return None
+        except Exception as e:
+            print("Gemini sync error: %s" % str(e))
+            return None
+
+    def _call_grok_sync(self, prompt):
+        """Synchronous call to Grok AI"""
         try:
             import requests
-            import json
 
             headers = {
                 "Authorization": "Bearer " + self.grok_api_key,
@@ -69,31 +78,33 @@ class GeminiAI:
                 return None
 
         except Exception as e:
-            print("Grok call error: %s" % str(e))
+            print("Grok sync error: %s" % str(e))
             return None
 
     async def _generate_with_fallback(self, prompt):
         """Generate response using Gemini first, fallback to Grok"""
 
-        # Try Google Gemini first
         if self.gemini_available:
             try:
-                response = self.gemini_model.generate_content(prompt)
-                if response and response.text:
+                print("Trying Gemini...")
+                response = await asyncio.to_thread(self._call_gemini_sync, prompt)
+                if response:
                     print("Response from: Google Gemini")
-                    return response.text.strip()
+                    return response
             except Exception as e:
                 print("Gemini failed: %s" % str(e))
 
-        # Fallback to Grok AI
         if self.grok_available:
             print("Falling back to Grok AI...")
-            grok_response = self._call_grok(prompt)
-            if grok_response:
-                print("Response from: Grok AI")
-                return grok_response
+            try:
+                response = await asyncio.to_thread(self._call_grok_sync, prompt)
+                if response:
+                    print("Response from: Grok AI")
+                    return response
+            except Exception as e:
+                print("Grok failed: %s" % str(e))
 
-        # Both failed
+        print("Both AI models failed!")
         return None
 
     async def get_response(self, user_message, db_prices=None):
@@ -112,9 +123,11 @@ class GeminiAI:
 
             prompt = context + "\n\nالمستخدم: \"" + user_message + "\"\n\nقدم ردا طبيعيا ووديا بالعربية (فقرة قصيرة):"
 
+            print("Sending prompt to AI (length: %d chars)..." % len(prompt))
             response = await self._generate_with_fallback(prompt)
 
             if response:
+                print("AI returned response: %s..." % response[:50])
                 return response
             else:
                 raise Exception("Both AI models failed")
