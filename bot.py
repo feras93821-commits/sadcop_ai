@@ -405,10 +405,6 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Bot started successfully!")
-    application.run_polling(
-        allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=True,  # مسح الرسائل المتراكمة التي تسبب ضغطاً عند التشغيل
-        close_loop=True             # إغلاق أي حلقات قديمة
-    )
+   application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 if __name__ == '__main__':
     main()
