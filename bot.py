@@ -405,7 +405,7 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Bot started successfully!")
-    pplication.run_polling(
+    application.run_polling(
     allowed_updates=Update.ALL_TYPES,
     drop_pending_updates=True,  # هذا السطر سيمسح أي طلبات قديمة عالقة فوراً
     close_loop=True
