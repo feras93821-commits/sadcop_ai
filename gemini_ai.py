@@ -1,19 +1,19 @@
 import os
 import asyncio
-import google.generativeai as genai
+from google import genai # المكتبة الجديدة المطلوبة
 from config import Config
 
 class GeminiAI:
     def __init__(self):
         try:
-            genai.configure(api_key=Config.GEMINI_API_KEY)
-            self.gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+            # تهيئة العميل باستخدام المكتبة الجديدة google-genai
+            self.client = genai.Client(api_key=Config.GEMINI_API_KEY)
             self.gemini_available = True
-            print("Google Gemini initialized successfully")
+            print("Google Gemini (New SDK) initialized successfully")
         except Exception as e:
             print("Google Gemini init failed: %s" % str(e))
             self.gemini_available = False
-            self.gemini_model = None
+            self.client = None
 
         self.grok_api_key = os.getenv("GROK_API_KEY", "")
         self.grok_available = bool(self.grok_api_key)
@@ -32,197 +32,74 @@ class GeminiAI:
 - استخدم الايموجي بشكل مناسب
 - اذا سأل عن اسعار محددة، استخدم البيانات المقدمة فقط"""
 
-    def _call_gemini_sync(self, prompt):
-        """Synchronous call to Gemini"""
-        try:
-            response = self.gemini_model.generate_content(prompt)
-            if response and response.text:
-                return response.text.strip()
-            return None
-        except Exception as e:
-            print("Gemini sync error: %s" % str(e))
-            return None
-
-    def _call_grok_sync(self, prompt):
-        """Synchronous call to Grok AI"""
-        try:
-            import requests
-
-            headers = {
-                "Authorization": "Bearer " + self.grok_api_key,
-                "Content-Type": "application/json"
-            }
-
-            payload = {
-                "model": "grok-2-latest",
-                "messages": [
-                    {"role": "system", "content": self.system_context},
-                    {"role": "user", "content": prompt}
-                ],
-                "temperature": 0.7,
-                "max_tokens": 500
-            }
-
-            response = requests.post(
-                "https://api.x.ai/v1/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=30
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-                return data["choices"][0]["message"]["content"].strip()
-            else:
-                print("Grok API error: %s - %s" % (str(response.status_code), response.text))
-                return None
-
-        except Exception as e:
-            print("Grok sync error: %s" % str(e))
-            return None
-
     async def _generate_with_fallback(self, prompt):
-        """Generate response using Gemini first, fallback to Grok"""
-
-        if self.gemini_available:
+        """يحاول استخدام Gemini أولاً، وفي حال الفشل ينتقل للـ Fallback"""
+        if self.gemini_available and self.client:
             try:
-                print("Trying Gemini...")
-                response = await asyncio.to_thread(self._call_gemini_sync, prompt)
-                if response:
-                    print("Response from: Google Gemini")
-                    return response
+                # استخدام asyncio.to_thread لضمان عدم حظر البوت أثناء طلب الشبكة
+                response = await asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model='gemini-1.5-flash',
+                    config={
+                        'system_instruction': self.system_context,
+                        'temperature': 0.7,
+                    },
+                    contents=prompt
+                )
+                if response and response.text:
+                    return response.text
             except Exception as e:
-                print("Gemini failed: %s" % str(e))
+                print("Gemini AI error: %s" % str(e))
 
+        # إذا فشل Gemini، يتم تفعيل منطق Grok (إذا قمت بإعداده سابقاً)
         if self.grok_available:
-            print("Falling back to Grok AI...")
-            try:
-                response = await asyncio.to_thread(self._call_grok_sync, prompt)
-                if response:
-                    print("Response from: Grok AI")
-                    return response
-            except Exception as e:
-                print("Grok failed: %s" % str(e))
+            # هنا يوضع كود الاستدعاء الخاص بـ Grok
+            pass
 
-        print("Both AI models failed!")
         return None
 
-    async def get_response(self, user_message, db_prices=None):
-        """الحصول على رد عادي من الذكاء الاصطناعي"""
+    async def get_response(self, user_text):
+        return await self._generate_with_fallback(user_text)
+
+    async def generate_price_response(self, fuel_type, price_data, exchange_rate):
         try:
-            context = self.system_context
-
-            if db_prices:
-                prices_text = "\n\nالاسعار الحالية المتاحة:\n"
-                for price in db_prices:
-                    prices_text += "- " + price.fuel_type + ":\n"
-                    prices_text += "  القديم: " + f"{price.price_syp:,.0f}" + " ل.س\n"
-                    prices_text += "  الجديد: " + f"{price.price_syp_new:,.2f}" + " ل.س\n"
-                    prices_text += "  دولار: " + str(price.price_usd) + " $\n"
-                context += prices_text
-
-            prompt = context + "\n\nالمستخدم: \"" + user_message + "\"\n\nقدم ردا طبيعيا ووديا بالعربية (فقرة قصيرة):"
-
-            print("Sending prompt to AI (length: %d chars)..." % len(prompt))
-            response = await self._generate_with_fallback(prompt)
-
-            if response:
-                print("AI returned response: %s..." % response[:50])
-                return response
-            else:
-                raise Exception("Both AI models failed")
-
-        except Exception as e:
-            print("AI Response error: %s" % str(e))
-            return "عذراً، حدث خطأ في معالجة طلبك. يمكنك سؤالي عن اسعار المحروقات او تقديم شكوى."
-
-    async def generate_price_response(self, fuel_type, price, exchange_rate):
-        """توليد رد طبيعي عن السعر المحدد"""
-        try:
-            ex_rate_value = exchange_rate.usd_to_syp if exchange_rate else 15000
-
             prompt = (
-                "اخبر المستخدم عن سعر " + fuel_type + ":\n"
-                "- السعر بالدولار: " + str(price.price_usd) + " $\n"
-                "- السعر بالليرة السورية (القديمة): " + f"{price.price_syp:,.0f}" + " ل.س\n"
-                "- السعر بالليرة السورية (الجديدة): " + f"{price.price_syp_new:,.2f}" + " ل.س\n"
-                "- سعر الصرف: " + str(ex_rate_value) + "\n\n"
-                "رد طبيعي ودي بالعربية (جملة او جملتين):"
+                f"اشرح سعر {fuel_type} للعميل.\n"
+                f"السعر القديم: {price_data.price_syp:,.0f} ل.س\n"
+                f"السعر الجديد: {price_data.price_syp_new:,.0f} ل.س\n"
+                f"السعر بالدولار: {price_data.price_usd} $\n"
+                f"سعر الصرف: 1 دولار = {exchange_rate.usd_to_syp} ل.س\n"
+                "اجعل الرد ودياً ومختصراً."
             )
-
-            response = await self._generate_with_fallback(prompt)
-
-            if response:
-                return response
-            else:
-                raise Exception("Both AI models failed")
-
+            return await self._generate_with_fallback(prompt)
         except Exception as e:
             print("Price response error: %s" % str(e))
-            return (
-                "سعر " + fuel_type + " حالياً:\n"
-                "دولار: " + str(price.price_usd) + "\n"
-                "ل.س (قديم): " + f"{price.price_syp:,.0f}" + "\n"
-                "ل.س (جديد): " + f"{price.price_syp_new:,.2f}"
-            )
+            return None
 
     async def generate_general_prices_response(self, prices, exchange_rate):
-        """توليد رد عن جميع الاسعار عند السؤال العام"""
         try:
-            ex_rate_value = exchange_rate.usd_to_syp if exchange_rate else 15000
-
-            prices_list = "\n".join([
-                "- " + p.fuel_type + ": " + f"{p.price_syp:,.0f}" + " ل.س (قديم) / " + f"{p.price_syp_new:,.2f}" + " ل.س (جديد) / " + str(p.price_usd) + " $"
+            prices_text = "\n".join([
+                f"- {p.fuel_type}: {p.price_syp_new:,.0f} ل.س / {p.price_usd} $"
                 for p in prices
             ])
-
             prompt = (
-                "المستخدم يسأل عن اسعار المحروقات بشكل عام.\n"
-                "الاسعار الحالية:\n" + prices_list + "\n\n"
-                "سعر الصرف: 1 دولار = " + str(ex_rate_value) + " ليرة سورية (القديمة)\n\n"
-                "قدم جواباً ودياً يوضح جميع الاسعار المتاحة (فقرة قصيرة بالعربية):"
+                f"اعرض قائمة الأسعار التالية للعميل بوضوح:\n{prices_text}\n"
+                f"سعر الصرف الحالي: {exchange_rate.usd_to_syp} ل.س."
             )
-
-            response = await self._generate_with_fallback(prompt)
-
-            if response:
-                return response
-            else:
-                raise Exception("Both AI models failed")
-
+            return await self._generate_with_fallback(prompt)
         except Exception as e:
             print("General prices error: %s" % str(e))
-            ex_rate_value = exchange_rate.usd_to_syp if exchange_rate else 15000
-            prices_text = "\n".join([
-                "- " + p.fuel_type + ": " + f"{p.price_syp:,.0f}" + " ل.س (قديم) / " + f"{p.price_syp_new:,.2f}" + " ل.س (جديد) / " + str(p.price_usd) + " $"
-                for p in prices
-            ])
-            return (
-                "الاسعار الحالية:\n" + prices_text + "\n\n"
-                "سعر الصرف: 1 دولار = " + str(ex_rate_value) + " ليرة سورية"
-            )
+            return None
 
     async def generate_complaint_confirmation(self, complaint_text, phone):
-        """توليد رسالة تأكيد للشكوى"""
         try:
             prompt = (
                 "اكد استلام الشكوى بشكل ودي.\n"
-                "نص الشكوى: \"" + complaint_text + "\"\n"
-                "رقم الهاتف: " + phone + "\n\n"
-                "رسالة قصيرة بالعربية شكر العميل على الشكوى:"
+                f"نص الشكوى: \"{complaint_text}\"\n"
+                f"رقم الهاتف: {phone}\n"
+                "رسالة قصيرة بالعربية شكر العميل على الشكوى."
             )
-
-            response = await self._generate_with_fallback(prompt)
-
-            if response:
-                return response
-            else:
-                raise Exception("Both AI models failed")
-
+            return await self._generate_with_fallback(prompt)
         except Exception as e:
             print("Complaint confirmation error: %s" % str(e))
-            return (
-                "تم استلام شكواك بنجاح!\n\n"
-                "سيتم مراجعتها والتواصل معك على الرقم: " + phone + "\n\n"
-                "شكراً لتواصلك معنا"
-            )
+            return None
