@@ -58,9 +58,25 @@ class GeminiAI:
 
         return None
 
-    async def get_response(self, user_text):
-        return await self._generate_with_fallback(user_text)
-
+   async def get_response(self, user_text, *args, **kwargs):
+        """تستقبل النص وتحاول معالجته عبر Gemini"""
+        if self.gemini_available and self.client:
+            try:
+                response = await asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model='gemini-1.5-flash',
+                    config={
+                        'system_instruction': self.system_context,
+                        'temperature': 0.7,
+                    },
+                    contents=user_text
+                )
+                if response and response.text:
+                    return response.text
+            except Exception as e:
+                print(f"Gemini AI error: {e}")
+        
+        return "عذراً، واجهت مشكلة في الاتصال بالذكاء الاصطناعي حالياً."
     async def generate_price_response(self, fuel_type, price_data, exchange_rate):
         try:
             prompt = (
