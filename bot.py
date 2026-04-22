@@ -196,7 +196,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print("User message: %s" % text)
         prices = db.get_all_prices()
         response = await ai.get_response(text, prices)
-        if not response or len(response.strip()) < 10:
+        if not response or len(response.strip()) < 2:
             raise ValueError("AI returned empty or too short response")
         print("AI Response: %s..." % response[:50])
         await update.message.reply_text(response)
