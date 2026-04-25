@@ -7,8 +7,7 @@ from telegram.ext import (
 from config import Config
 from database import Database
 from admin_panel import AdminPanel
-from rag_chain import get_answer   # ← هذا الجديد
-from llm_router import LLMRouter
+from rag_chain import get_answer
 
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
@@ -23,9 +22,6 @@ print("Initializing database...")
 db = Database()
 print("Initializing admin panel...")
 admin_panel = AdminPanel(db)
-
-# إعداد النظام الجديد
-router = LLMRouter()
 
 STATE_NORMAL = "normal"
 STATE_AWAITING_COMPLAINT = "awaiting_complaint"
@@ -53,27 +49,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
 
-    # حالات الأدمن
-    if current_state in (STATE_EDITING_PRICE, STATE_EDITING_EXCHANGE) and user.id == Config.ADMIN_ID:
-        # (نبقي الكود القديم هنا كما هو)
-        pass
-
-    # حالات الشكاوى
     if current_state == STATE_AWAITING_COMPLAINT:
-        # (نبقي كود الشكوى كما هو)
-        pass
-
-    if current_state == STATE_AWAITING_PHONE:
-        # (نبقي كود الشكوى كما هو)
-        pass
-
-    if is_complaint_request(text):
-        context.user_data['state'] = STATE_AWAITING_COMPLAINT
-        msg = "بالطبع، يمكنني مساعدتك في تقديم شكوى.\n\nرقم الشكاوى: 0933145808\n\nيرجى كتابة تفاصيل الشكوى:"
+        context.user_data = text
+        context.user_data = STATE_AWAITING_PHONE
+        msg = f"شكراً لك على توضيح الشكوى\n\nرقم الشكاوى: {Config.COMPLAINT_PHONE}\n\nالآن يرجى إرسال رقم هاتفك (أو اكتب 'تخطي'):"
         await update.message.reply_text(msg)
         return
 
-    # ←←←← هنا الجزء الجديد (الأهم) ←←←←
+    if current_state == STATE_AWAITING_PHONE:
+        phone = text if text != 'تخطي' else Config.COMPLAINT_PHONE
+        context.user_data['phone'] = phone
+        context.user_data = STATE_NORMAL
+        # هنا كود حفظ الشكوى من database.py (اتركه كما هو عندك)
+        await update.message.reply_text("شكراً، تم تسجيل شكواك وسيتم التواصل معك.")
+        return
+
+    if is_complaint_request(text):
+        context.user_data['state'] = STATE_AWAITING_COMPLAINT
+        msg = f"بالطبع، يمكنني مساعدتك في تقديم شكوى.\n\nرقم الشكاوى: {Config.COMPLAINT_PHONE}\n\nيرجى كتابة تفاصيل الشكوى:"
+        await update.message.reply_text(msg)
+        return
+
+    # النظام الجديد - RAG
     try:
         response = get_answer(text)
         await update.message.reply_text(response)
@@ -93,8 +90,9 @@ def main():
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", admin_command))
-    
     application.add_handler(CallbackQueryHandler(button_callback))
+    
+    # السطر المصحح أخيراً
     application.add_handler(MessageHandler(filters.TEXT & \~filters.COMMAND, handle_message))
 
     logger.info("✅ البوت شغال مع نظام RAG الجديد")
