@@ -95,7 +95,7 @@ def main():
     application.add_handler(CommandHandler("admin", admin_command))
     
     application.add_handler(CallbackQueryHandler(button_callback))
-    application.add_handler(MessageHandler(filters.TEXT & \~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(filters.TEXT &\~filters.COMMAND, handle_message))
 
     logger.info("✅ البوت شغال مع نظام RAG الجديد")
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
