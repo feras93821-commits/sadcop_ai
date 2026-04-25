@@ -93,7 +93,7 @@ def main():
     application.add_handler(CallbackQueryHandler(button_callback))
     
     # السطر المصحح أخيراً
-    application.add_handler(MessageHandler(filters.TEXT & \~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("✅ البوت شغال مع نظام RAG الجديد")
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
