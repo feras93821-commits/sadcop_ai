@@ -1,16 +1,19 @@
 from langchain_community.vectorstores import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from llm_router import LLMRouter
 import os
 
-# تحميل قاعدة البيانات
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+embeddings = GoogleGenerativeAIEmbeddings(
+    model="models/embedding-001",
+    google_api_key=os.getenv("GEMINI_API_KEY")
+)
 
 vectorstore = Chroma(
     persist_directory="chroma_db",
     embedding_function=embeddings
 )
+...
 
 retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
 
