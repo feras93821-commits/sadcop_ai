@@ -1,6 +1,6 @@
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_chroma import Chroma
+from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 import os
 
@@ -12,7 +12,6 @@ if not os.path.exists(DATA_PATH):
     os.makedirs(DATA_PATH)
     print(f"⚠️ مجلد {DATA_PATH}/ غير موجود، تم إنشاؤه فارغاً")
     print("   أضف ملفات .md داخله ثم شغّل هذا الملف مرة أخرى.")
-    # لا نوقف التشغيل، لكن vectorstore سيكون فارغاً
 
 # 1. تحميل كل الملفات من مجلد data
 if os.path.exists(DATA_PATH) and any(f.endswith('.md') for f in os.listdir(DATA_PATH)):
@@ -47,7 +46,6 @@ if chunks:
     print(f"✅ تم تحميل {len(chunks)} قطعة من المعلومات بنجاح")
     print("✅ تم إنشاء قاعدة بيانات الـ RAG")
 else:
-    # إنشاء vectorstore فارغ
     vectorstore = Chroma(
         persist_directory="chroma_db",
         embedding_function=embeddings
