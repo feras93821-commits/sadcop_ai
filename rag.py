@@ -1,19 +1,15 @@
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_community.embeddings import FastEmbedEmbeddings
 import os
 
-# إعداد المجلد
 DATA_PATH = "data"
 
-# تأكد من وجود المجلد
 if not os.path.exists(DATA_PATH):
     os.makedirs(DATA_PATH)
     print(f"⚠️ مجلد {DATA_PATH}/ غير موجود، تم إنشاؤه فارغاً")
-    print("   أضف ملفات .md داخله ثم شغّل هذا الملف مرة أخرى.")
 
-# 1. تحميل كل الملفات من مجلد data
 if os.path.exists(DATA_PATH) and any(f.endswith('.md') for f in os.listdir(DATA_PATH)):
     loader = DirectoryLoader(
         DATA_PATH,
@@ -26,7 +22,6 @@ else:
     documents = []
     print("⚠️ لا توجد ملفات .md في مجلد data/")
 
-# 2. تقسيم النصوص لقطع صغيرة
 text_splitter = RecursiveCharacterTextSplitter(
     chunk_size=800,
     chunk_overlap=100
@@ -34,8 +29,7 @@ text_splitter = RecursiveCharacterTextSplitter(
 
 chunks = text_splitter.split_documents(documents) if documents else []
 
-# 3. إعداد نظام البحث (Vector Store)
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+embeddings = FastEmbedEmbeddings(model_name="BAAI/bge-small-en-v1.5")
 
 if chunks:
     vectorstore = Chroma.from_documents(
@@ -44,7 +38,6 @@ if chunks:
         persist_directory="chroma_db"
     )
     print(f"✅ تم تحميل {len(chunks)} قطعة من المعلومات بنجاح")
-    print("✅ تم إنشاء قاعدة بيانات الـ RAG")
 else:
     vectorstore = Chroma(
         persist_directory="chroma_db",
