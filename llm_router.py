@@ -7,19 +7,22 @@ class LLMRouter:
         self.models = []
 
         # === Groq - الأساسي ===
-        groq_key = os.getenv("GROQ_API_KEY")
+        groq_key = os.getenv("GROQ_API_KEY") or os.getenv("GROK_API_KEY")
         if groq_key:
             try:
                 self.models.append(
                     ChatGroq(
-                        model="llama3-8b-8192",
+                        model="llama-3.1-8b-instant",
                         temperature=0.7,
                         max_tokens=600,
                         api_key=groq_key
                     )
                 )
+                print("✅ Groq model loaded")
             except Exception as e:
-                print("Groq init error:", e)
+                print("❌ Groq init error:", e)
+        else:
+            print("⚠️ GROQ_API_KEY not found")
 
         # === Gemini - احتياطي ===
         gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
@@ -33,24 +36,28 @@ class LLMRouter:
                         google_api_key=gemini_key
                     )
                 )
+                print("✅ Gemini model loaded")
             except Exception as e:
-                print("Gemini init error:", e)
+                print("❌ Gemini init error:", e)
+        else:
+            print("⚠️ GEMINI_API_KEY not found")
+
+        if not self.models:
+            print("❌ لا يوجد أي موديل شغال! تحقق من مفاتيح API في إعدادات Railway.")
 
     def get_llm(self):
-        """ترجع أول موديل شغال"""
         if self.models:
             return self.models[0]
         else:
             raise ValueError("ما في أي API Key تم تفعيله!")
 
     def get_response(self, prompt):
-        """تجرب كل الموديلات بالترتيب لحد ما يشتغل واحد"""
-        for model in self.models:
+        for i, model in enumerate(self.models):
             try:
                 response = model.invoke(prompt)
                 return response.content
             except Exception as e:
-                print(f"Model error: {e}")
+                print(f"❌ Model {i} failed: {e}")
                 continue
 
-        return "عذراً، النظام مشغول حالياً. جرب مرة ثانية بعد دقائق."
+        return None  # Return None so caller can detect failure

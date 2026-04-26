@@ -30,10 +30,35 @@ STATE_EDITING_PRICE = "editing_price"
 STATE_EDITING_EXCHANGE = "editing_exchange"
 
 COMPLAINT_KEYWORDS = ['شكوى', 'شكوة', 'شكوي', 'complaint', 'تقديم شكوى', 'أشكو', 'بدي اشتكي']
+FUEL_KEYWORDS = ['بنزين', 'مازوت', 'غاز', 'سعر', 'أسعار', 'price', 'fuel']
 
 def is_complaint_request(text):
     text_lower = text.lower()
     return any(keyword in text_lower for keyword in COMPLAINT_KEYWORDS)
+
+def is_fuel_question(text):
+    text_lower = text.lower()
+    return any(keyword in text_lower for keyword in FUEL_KEYWORDS)
+
+def get_fuel_prices_text():
+    """يرجع نص بأسعار المحروقات من قاعدة البيانات"""
+    try:
+        prices = db.get_all_prices()
+        if not prices:
+            return None
+        lines = ["📋 أسعار المحروقات الحالية:"]
+        for p in prices:
+            lines.append(f"\n⛽ *{p.fuel_type}*")
+            if p.price_usd and p.price_usd > 0:
+                lines.append(f"   💵 دولار: `{p.price_usd}`")
+            if p.price_syp and p.price_syp > 0:
+                lines.append(f"   💷 قديم: `{int(p.price_syp):,}` ل.س")
+            if p.price_syp_new and p.price_syp_new > 0:
+                lines.append(f"   💶 جديد: `{p.price_syp_new:,.2f}` ل.س")
+        return "\n".join(lines)
+    except Exception as e:
+        logger.error(f"Error getting prices: {e}")
+        return None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -60,7 +85,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         phone = text if text != 'تخطي' else Config.COMPLAINT_PHONE
         context.user_data['phone'] = phone
 
-        # حفظ الشكوى في قاعدة البيانات
         try:
             db.add_complaint(
                 user_id=user.id,
@@ -89,19 +113,55 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg)
         return
 
-    # النظام الجديد - RAG
+    # محاولة RAG أولاً
     try:
         response = get_answer(text)
-        await update.message.reply_text(response)
+        if response:
+            await update.message.reply_text(response)
+            return
     except Exception as e:
         logger.error(f"RAG Error: {e}")
-        await update.message.reply_text("عذراً، حدث خطأ في النظام. جرب مرة ثانية.")
+
+    # Fallback: إذا كان السؤال عن أسعار المحروقات
+    if is_fuel_question(text):
+        prices_text = get_fuel_prices_text()
+        if prices_text:
+            await update.message.reply_text(prices_text, parse_mode='Markdown')
+            return
+
+    # Fallback نهائي
+    await update.message.reply_text(
+        "عذراً، النظام مشغول حالياً أو لا أملك إجابة لهذا السؤال.\n"
+        "يمكنك سؤالي عن:\n"
+        "• أسعار المحروقات (بنزين، مازوت، غاز...)\n"
+        "• تقديم شكوى\n"
+        "• معلومات عامة عن الشركة"
+    )
 
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != Config.ADMIN_ID:
         await update.message.reply_text("هذا الأمر مخصص للمدير فقط.")
         return
     await admin_panel.show_admin_menu(update, context)
+
+async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """أمر للمدير لمعرفة حالة النظام"""
+    if update.effective_user.id != Config.ADMIN_ID:
+        return
+
+    prices = db.get_all_prices()
+    complaints_count = len(db.get_all_complaints())
+
+    msg = (
+        "🔧 حالة النظام:\n\n"
+        f"🛢️ أنواع الوقود: {len(prices)}\n"
+        f"📨 عدد الشكاوى: {complaints_count}\n"
+        f"🤖 BOT_TOKEN: {'✅ موجود' if Config.BOT_TOKEN else '❌ غير موجود'}\n"
+        f"🔑 GROQ_API_KEY: {'✅ موجود' if Config.GROQ_API_KEY else '❌ غير موجود'}\n"
+        f"🔑 GEMINI_API_KEY: {'✅ موجود' if Config.GEMINI_API_KEY else '❌ غير موجود'}\n"
+        f"👤 ADMIN_ID: {Config.ADMIN_ID}"
+    )
+    await update.message.reply_text(msg)
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -142,6 +202,7 @@ def main():
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", admin_command))
+    application.add_handler(CommandHandler("debug", debug_command))
     application.add_handler(CallbackQueryHandler(button_callback))
 
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
