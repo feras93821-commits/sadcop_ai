@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text, BigInteger, inspect
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text, BigInteger, inspect, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -96,9 +96,10 @@ class Database:
             old_data = []
             try:
                 with self.engine.connect() as conn:
-                    result = conn.execute("SELECT * FROM complaints")
+                    result = conn.execute(text("SELECT * FROM complaints"))
                     old_data = [dict(row._mapping) for row in result]
-            except:
+            except Exception as e:
+                print("Could not read old complaints: " + str(e))
                 pass
             Complaint.__table__.drop(self.engine, checkfirst=True)
             Complaint.__table__.create(self.engine)

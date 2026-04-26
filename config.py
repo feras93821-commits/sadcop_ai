@@ -5,8 +5,8 @@ load_dotenv()
 
 class Config:
     BOT_TOKEN = os.getenv("BOT_TOKEN")
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-    GROK_API_KEY = os.getenv("GROK_API_KEY", "")
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  # or GOOGLE_API_KEY
+    GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")   # was GROK_API_KEY
     ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///spc_bot.db")
 

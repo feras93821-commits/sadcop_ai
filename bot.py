@@ -50,8 +50,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
 
     if current_state == STATE_AWAITING_COMPLAINT:
-        context.user_data = text
-        context.user_data = STATE_AWAITING_PHONE
+        context.user_data['complaint_text'] = text
+        context.user_data['state'] = STATE_AWAITING_PHONE
         msg = f"شكراً لك على توضيح الشكوى\n\nرقم الشكاوى: {Config.COMPLAINT_PHONE}\n\nالآن يرجى إرسال رقم هاتفك (أو اكتب 'تخطي'):"
         await update.message.reply_text(msg)
         return
@@ -59,8 +59,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if current_state == STATE_AWAITING_PHONE:
         phone = text if text != 'تخطي' else Config.COMPLAINT_PHONE
         context.user_data['phone'] = phone
-        context.user_data = STATE_NORMAL
-        # هنا كود حفظ الشكوى من database.py (اتركه كما هو عندك)
+
+        # حفظ الشكوى في قاعدة البيانات
+        try:
+            db.add_complaint(
+                user_id=user.id,
+                username=user.username,
+                full_name=user.full_name,
+                phone=phone,
+                complaint_text=context.user_data.get('complaint_text', '')
+            )
+        except Exception as e:
+            logger.error(f"Error saving complaint: {e}")
+            await update.message.reply_text("عذراً، حدث خطأ أثناء حفظ الشكوى. جرب مرة ثانية.")
+            context.user_data['state'] = STATE_NORMAL
+            context.user_data.pop('complaint_text', None)
+            context.user_data.pop('phone', None)
+            return
+
+        context.user_data['state'] = STATE_NORMAL
+        context.user_data.pop('complaint_text', None)
+        context.user_data.pop('phone', None)
         await update.message.reply_text("شكراً، تم تسجيل شكواك وسيتم التواصل معك.")
         return
 
@@ -84,6 +103,39 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await admin_panel.show_admin_menu(update, context)
 
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    if data == 'admin_menu':
+        await admin_panel.show_admin_menu(update, context)
+    elif data == 'admin_prices':
+        await admin_panel.show_prices_editor(update, context)
+    elif data.startswith('edit_price_'):
+        await admin_panel.handle_price_edit(update, context)
+    elif data == 'admin_complaints':
+        await admin_panel.show_complaints(update, context)
+    elif data == 'admin_exchange':
+        await query.edit_message_text("تعديل سعر الصرف - قريباً")
+    elif data == 'admin_stats':
+        await query.edit_message_text("الإحصائيات - قريباً")
+    elif data == 'close_menu':
+        await query.delete_message()
+    elif data.startswith('comp_status_'):
+        parts = data.split('_')
+        if len(parts) >= 4:
+            comp_id = int(parts[2])
+            new_status = parts[3]
+            try:
+                db.update_complaint_status(comp_id, new_status)
+                await query.answer(f"تم تحديث الحالة إلى: {new_status}", show_alert=True)
+            except Exception as e:
+                logger.error(f"Error updating complaint status: {e}")
+                await query.answer("حدث خطأ أثناء التحديث", show_alert=True)
+    else:
+        await query.edit_message_text("أمر غير معروف.")
+
 
 def main():
     application = Application.builder().token(Config.BOT_TOKEN).build()
@@ -91,8 +143,7 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", admin_command))
     application.add_handler(CallbackQueryHandler(button_callback))
-    
-    # السطر المصحح أخيراً
+
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("✅ البوت شغال مع نظام RAG الجديد")
